@@ -72,10 +72,10 @@ pub struct BlockHeader {
 }
 
 #[derive(Deserialize, Debug)]
-struct BlockHeaderResponse {
-    items: Vec<BlockHeader>,
-    limit: u32,
-    next: Option<String>,
+pub struct BlockHeaderResponse {
+    pub items: Vec<BlockHeader>,
+    pub limit: u32,
+    pub next: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -234,10 +234,14 @@ async fn get_block_hashes_branches(
 pub async fn get_block_headers_branches(
     chain: &ChainId,
     bounds: &Bounds,
-) -> Result<Vec<BlockHeader>, Box<dyn Error>> {
+    next: &Option<String>,
+) -> Result<BlockHeaderResponse, Box<dyn Error>> {
     let endpoint = format!("/chain/{chain}/header/branch");
     let mut url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
     url.query_pairs_mut().append_pair("limit", "10");
+    if let Some(next) = next {
+        url.query_pairs_mut().append_pair("next", &next);
+    }
     let mut headers = reqwest::header::HeaderMap::new();
     headers.append(
         "accept",
@@ -245,6 +249,7 @@ pub async fn get_block_headers_branches(
             .parse()
             .unwrap(),
     );
+
     let response: BlockHeaderResponse = reqwest::Client::new()
         .post(url)
         .json(bounds)
@@ -253,7 +258,7 @@ pub async fn get_block_headers_branches(
         .await?
         .json()
         .await?;
-    Ok(response.items)
+    Ok(response)
 }
 
 pub async fn get_block_payload_batch(
