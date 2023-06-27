@@ -25,9 +25,12 @@ async fn main() {
         db: &mut pool.get().unwrap(),
     };
 
-    blocks.delete_all();
-    transactions.delete_all();
-    events.delete_all();
+    log::info!("Deleted {} events", events.delete_all().unwrap());
+    log::info!(
+        "Deleted {} transactions",
+        transactions.delete_all().unwrap()
+    );
+    log::info!("Deleted {} blocks", blocks.delete_all().unwrap());
 
     let mut indexer = Indexer {
         blocks,
