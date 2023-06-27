@@ -22,6 +22,18 @@ impl<'a> BlocksRepository<'a> {
         Ok(new_block)
     }
 
+    pub fn insert_batch(
+        &mut self,
+        blocks: &Vec<Block>,
+    ) -> Result<Vec<Block>, diesel::result::Error> {
+        use crate::schema::blocks::dsl::blocks as blocks_table;
+        let inserted = diesel::insert_into(blocks_table)
+            .values(blocks)
+            .returning(Block::as_returning())
+            .get_results(self.db)?;
+        Ok(inserted)
+    }
+
     pub fn delete_all(&mut self) -> Result<usize, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
         let deleted = diesel::delete(blocks).execute(self.db)?;
@@ -53,6 +65,17 @@ impl<'a> EventsRepository<'a> {
             .returning(Event::as_returning())
             .get_result(self.db)?;
         Ok(new_event)
+    }
+
+    pub fn insert_batch(
+        &mut self,
+        events: &Vec<Event>,
+    ) -> Result<Vec<Event>, diesel::result::Error> {
+        use crate::schema::events::dsl::events as events_table;
+        let inserted = diesel::insert_into(events_table)
+            .values(events)
+            .get_results(self.db)?;
+        Ok(inserted)
     }
 
     pub fn delete_all(&mut self) -> Result<usize, diesel::result::Error> {
@@ -102,6 +125,18 @@ impl<'a> TransactionsRepository<'a> {
             .returning(Transaction::as_returning())
             .get_result(self.db)?;
         Ok(transaction)
+    }
+
+    pub fn insert_batch(
+        &mut self,
+        transactions: &Vec<Transaction>,
+    ) -> Result<Vec<Transaction>, diesel::result::Error> {
+        use crate::schema::transactions::dsl::transactions as transactions_table;
+        let inserted = diesel::insert_into(transactions_table)
+            .values(transactions)
+            .returning(Transaction::as_returning())
+            .get_results(self.db)?;
+        Ok(inserted)
     }
 
     pub fn delete_all(&mut self) -> Result<usize, diesel::result::Error> {
