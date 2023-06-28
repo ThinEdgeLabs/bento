@@ -78,7 +78,7 @@ pub struct BlockHeaderResponse {
     pub next: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub struct BlockPayload {
     #[serde(rename(deserialize = "minerData"))]
     pub miner_data: String,
@@ -102,7 +102,7 @@ pub struct SignedTransaction {
     pub sigs: Vec<Sig>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub enum Network {
     #[serde(rename = "mainnet01")]
     Mainnet,
@@ -112,34 +112,58 @@ pub enum Network {
     Devnet,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub struct Meta {
     #[serde(rename(deserialize = "chainId"))]
     pub chain_id: String,
     #[serde(rename(deserialize = "creationTime"))]
     pub creation_time: u64,
     #[serde(rename(deserialize = "gasLimit"))]
-    pub gas_limit: f32,
+    pub gas_limit: i32,
     #[serde(rename(deserialize = "gasPrice"))]
     pub gas_price: f32,
     pub sender: String,
     pub ttl: u32,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub struct Signer {
     #[serde(rename(deserialize = "pubKey"))]
     public_key: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub struct Command {
     #[serde(rename(deserialize = "networkId"))]
     pub network_id: Network,
     pub nonce: String,
-    pub payload: Value,
+    pub payload: Payload,
     pub signers: Vec<Signer>,
     pub meta: Meta,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub enum Payload {
+    #[serde(rename(deserialize = "cont", serialize = "cont"))]
+    Cont(ContPayload),
+    #[serde(rename(deserialize = "exec", serialize = "exec"))]
+    Exec(ExecPayload),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct ExecPayload {
+    pub code: String,
+    pub data: Value,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct ContPayload {
+    pub data: Value,
+    #[serde(rename(deserialize = "pactId"))]
+    pub pact_id: String,
+    pub proof: String,
+    pub rollback: bool,
+    pub step: u32,
 }
 
 pub mod tx_result {
@@ -291,4 +315,74 @@ pub async fn poll(
         .json()
         .await?;
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parsing_cont_command_json() {
+        let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"cont\":{\"proof\":\"proof\",\"pactId\":\"AoKZVe35EWK-2a-kj_tD6vC8Ifdt1mdQyK0_2Rm_Jto\",\"rollback\":false,\"step\":1,\"data\":{}}},\"signers\":[],\"meta\":{\"creationTime\":1687931936,\"ttl\":3600,\"gasLimit\":850,\"chainId\":\"0\",\"gasPrice\":1e-8,\"sender\":\"xwallet-xchain-gas\"},\"nonce\":\"\\\"2023-06-28T05:59:55.767Z\\\"\"}";
+
+        let cont = ContPayload {
+            data: serde_json::json!({}),
+            pact_id: "AoKZVe35EWK-2a-kj_tD6vC8Ifdt1mdQyK0_2Rm_Jto".to_string(),
+            proof: "proof".to_string(),
+            rollback: false,
+            step: 1,
+        };
+        let cmd = Command {
+            network_id: Network::Mainnet,
+            payload: Payload::Cont(cont),
+            signers: vec![],
+            nonce: String::from("\"2023-06-28T05:59:55.767Z\""),
+            meta: Meta {
+                chain_id: String::from("0"),
+                creation_time: 1687931936,
+                gas_limit: 850,
+                gas_price: 0.00000001,
+                sender: String::from("xwallet-xchain-gas"),
+                ttl: 3600,
+            },
+        };
+        assert_eq!(serde_json::from_str::<Command>(&json).unwrap(), cmd);
+    }
+
+    #[test]
+    fn test_parsing_exec_command_json() {
+        let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"keyset\":{\"pred\":\"keys-all\",\"keys\":[\"48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173\"]}},\"code\":\"(free.radio02.direct-to-send \\\"k:1625709839e6c607385cc6b71191ae033217da29fe4bcaf8131575ba31f6d58e\\\" )\"}},\"signers\":[{\"pubKey\":\"48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173\"}],\"meta\":{\"creationTime\":1687938640,\"ttl\":28800,\"gasLimit\":1000,\"chainId\":\"0\",\"gasPrice\":0.000001,\"sender\":\"k:48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173\"},\"nonce\":\"\\\"2023-06-28T07:50:55.438Z\\\"\"}";
+        let exec = ExecPayload {
+            code: String::from("(free.radio02.direct-to-send \"k:1625709839e6c607385cc6b71191ae033217da29fe4bcaf8131575ba31f6d58e\" )"),
+            data: serde_json::json!({
+                "keyset": {
+                    "pred": "keys-all",
+                    "keys": [
+                        "48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173"
+                    ]
+                }
+            }),
+        };
+        let cmd = Command {
+            network_id: Network::Mainnet,
+            nonce: String::from("\"2023-06-28T07:50:55.438Z\""),
+            payload: Payload::Exec(exec),
+            signers: vec![Signer {
+                public_key: String::from(
+                    "48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173",
+                ),
+            }],
+            meta: Meta {
+                chain_id: String::from("0"),
+                creation_time: 1687938640,
+                gas_limit: 1000,
+                gas_price: 0.000001,
+                sender: String::from(
+                    "k:48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173",
+                ),
+                ttl: 28800,
+            },
+        };
+        assert_eq!(serde_json::from_str::<Command>(&json).unwrap(), cmd);
+    }
 }
