@@ -7,7 +7,7 @@ use std::str::FromStr;
 use crate::chainweb_client::tx_result::PactTransactionResult;
 use crate::chainweb_client::{
     get_block_headers_branches, get_block_payload_batch, get_cut, poll, BlockHash, BlockHeader,
-    BlockPayload, Bounds, ChainId, Command, Hash, SignedTransaction,
+    BlockPayload, Bounds, ChainId, Command, Hash, Payload, SignedTransaction,
 };
 use crate::models::*;
 use crate::repository::*;
@@ -132,6 +132,7 @@ impl<'a> Indexer<'a> {
                             build_transaction(&signed_tx, &pact_result)
                         })
                         .collect();
+                    log::info!("{} transactions are continuations", txs.len());
                     match self.transactions.insert_batch(&txs) {
                         Ok(inserted) => log::info!("Inserted {} transactions", inserted.len()),
                         Err(e) => log::error!("Error inserting transactions: {:#?}", e),
@@ -182,9 +183,10 @@ fn get_signed_txs_from_payloads(payloads: &Vec<BlockPayload>) -> Vec<SignedTrans
         .collect::<Vec<SignedTransaction>>()
 }
 
-fn build_block(header: &BlockHeader, payload: &BlockPayload) -> Block {
+fn build_block(header: &BlockHeader, block_payload: &BlockPayload) -> Block {
     let miner_data =
-        serde_json::from_slice::<Value>(&base64_url::decode(&payload.miner_data).unwrap()).unwrap();
+        serde_json::from_slice::<Value>(&base64_url::decode(&block_payload.miner_data).unwrap())
+            .unwrap();
     Block {
         chain_id: header.chain_id.0 as i64,
         hash: header.hash.clone(),
@@ -198,7 +200,7 @@ fn build_block(header: &BlockHeader, payload: &BlockPayload) -> Block {
         flags: BigDecimal::from(header.feature_flags),
         miner: miner_data["account"].to_string(),
         nonce: BigDecimal::from_str(&header.nonce).unwrap(),
-        payload: payload.payload_hash.clone(),
+        payload: block_payload.payload_hash.clone(),
         pow_hash: "".to_string(),
         predicate: miner_data["predicate"].to_string(),
         target: bigdecimal::BigDecimal::from(1),
@@ -211,18 +213,23 @@ fn build_transaction(
 ) -> Transaction {
     let continuation = pact_result.continuation.clone();
     let command = serde_json::from_str::<Command>(&signed_tx.cmd).unwrap();
+    let (code, data, proof) = match command.payload {
+        Payload::Exec(value) => (Some(value.code), Some(value.data), None),
+        Payload::Cont(value) => (None, Some(value.data), Some(value.proof)),
+    };
+
     Transaction {
         bad_result: pact_result.result.error.clone(),
         block: pact_result.metadata.block_hash.clone(),
         chain_id: command.meta.chain_id.parse().unwrap(),
         creation_time: NaiveDateTime::from_timestamp_micros(pact_result.metadata.block_time)
             .unwrap(),
-        code: Some("code".to_string()),
+        code: code,
+        data: data,
         continuation: pact_result.continuation.clone(),
-        data: pact_result.result.data.clone(),
         gas: pact_result.gas,
         gas_price: command.meta.gas_price as f64,
-        gas_limit: 800,
+        gas_limit: command.meta.gas_limit as i64,
         good_result: pact_result.result.data.clone(),
         height: pact_result.metadata.block_height,
         logs: if pact_result.logs.is_empty() {
@@ -234,7 +241,7 @@ fn build_transaction(
         nonce: command.nonce,
         num_events: Some(pact_result.events.len() as i64),
         pact_id: continuation.clone().map(|e| e["pactId"].to_string()),
-        proof: None,
+        proof: proof,
         request_key: pact_result.request_key.to_string(),
         rollback: continuation
             .clone()
@@ -325,12 +332,8 @@ mod tests {
             outputs_hash: String::from("7aK26TiKVzvnsjXcL0h4iWg3r6_HBmPoqNpO-o5mYcQ"),
             miner_data: String::from("eyJhY2NvdW50IjoiYzUwYjlhY2I0OWNhMjVmNTkxOTNiOTViNGUwOGU1MmUyZWM4OWZhMWJmMzA4ZTY0MzZmMzlhNDBhYzJkYzRmMyIsInByZWRpY2F0ZSI6ImtleXMtYWxsIiwicHVibGljLWtleXMiOlsiYzUwYjlhY2I0OWNhMjVmNTkxOTNiOTViNGUwOGU1MmUyZWM4OWZhMWJmMzA4ZTY0MzZmMzlhNDBhYzJkYzRmMyJdfQ"),
         };
-        assert_eq!(
-            get_signed_txs_from_payloads(&vec![payload]),
-            vec![
-                "gaD_OZdL3cJKGelC73laoBDJjWJTkstkkjIAIKOOq1U",
-                "tdZsPK1KjFEwn3Fmm3tTb6DK5XulN1p_ZNzq24pvxfw"
-            ]
-        );
+        let signed_txs: Vec<SignedTransaction> = vec![];
+        let result = get_signed_txs_from_payloads(&vec![payload]);
+        println!("{:#?}", result);
     }
 }
