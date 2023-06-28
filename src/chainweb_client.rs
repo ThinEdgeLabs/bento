@@ -91,11 +91,11 @@ pub struct BlockPayload {
     pub transactions_hash: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Sig {
     pub sig: String,
 }
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub struct SignedTransaction {
     pub cmd: String,
     pub hash: String,
