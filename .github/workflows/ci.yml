@@ -41,9 +41,9 @@ jobs:
       #     chmod a+rwx todo.db
       #     sqlx migrate run
 
-      # - name: cargo check
-      #   run: cargo check --workspace --bins --examples --tests
-      #   timeout-minutes: 1
+      - name: cargo check
+        run: cargo check --workspace --bins --examples --tests
+        timeout-minutes: 1
 
       # - name: Start Redis
       #   uses: supercharge/redis-github-action@1.5.0
