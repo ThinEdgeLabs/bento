@@ -45,9 +45,9 @@ jobs:
         run: cargo check --workspace --bins --examples --tests
         timeout-minutes: 1
 
-      - name: Start Redis
-        uses: supercharge/redis-github-action@1.5.0
-        with: { redis-version: 6 }
+      # - name: Start Redis
+      #   uses: supercharge/redis-github-action@1.5.0
+      #   with: { redis-version: 6 }
 
       - name: cargo test
         run: cargo test --workspace --all-features --no-fail-fast -- --nocapture
