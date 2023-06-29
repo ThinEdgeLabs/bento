@@ -9,11 +9,17 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: bento
-    ports:
-      - 5432:5432
 
   adminer:
     image: adminer
     restart: always
     ports:
       - 8080:8080
+
+  bento:
+    build: .
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/bento
