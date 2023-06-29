@@ -27,7 +27,7 @@ jobs:
         with:
           command: |
             cd bento
-            docker compose up -d --build --force-recreate
+            docker compose up -f docker-compose.yml -f docker-compose.prod.yml -d --build --force-recreate
           host: ${{ secrets.HOST }}
           user: root
           key: ${{ secrets.DEPLOY_KEY}}
