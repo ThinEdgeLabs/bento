@@ -291,7 +291,8 @@ pub async fn fetch_transactions_results(
     let concurrent_requests = 40;
     let mut results: Vec<PactTransactionResult> = vec![];
 
-    //TODO: Try to use tokio::StreamExt instead so we can return a result
+    //TODO: Try to use tokio::StreamExt instead or figure out a way to return a Result
+    // so we can handle errors if any of the requests fail
     futures::stream::iter(request_keys.chunks(transactions_per_request))
         .map(|chunk| async move { poll(&chunk.to_vec(), &chain).await })
         .buffer_unordered(concurrent_requests)

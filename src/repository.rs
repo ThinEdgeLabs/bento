@@ -42,9 +42,10 @@ impl<'a> BlocksRepository<'a> {
     }
 
     pub fn delete_one(&self, hash: &str) -> Result<usize, diesel::result::Error> {
-        use crate::schema::blocks::dsl::*;
+        use crate::schema::blocks::dsl::{blocks as blocks_table, hash as hash_column};
         let mut conn = self.pool.get().unwrap();
-        let deleted = diesel::delete(blocks.filter(hash.eq(hash))).execute(&mut conn)?;
+        let deleted =
+            diesel::delete(blocks_table.filter(hash_column.eq(hash))).execute(&mut conn)?;
         Ok(deleted)
     }
 }
@@ -93,13 +94,15 @@ impl<'a> EventsRepository<'a> {
         idx: i64,
         request_key: &str,
     ) -> Result<usize, diesel::result::Error> {
-        use crate::schema::events::dsl::*;
+        use crate::schema::events::dsl::{
+            block as block_col, events, idx as idx_col, request_key as request_key_col,
+        };
         let mut conn = self.pool.get().unwrap();
         let deleted = diesel::delete(
             events
-                .filter(block.eq(block))
-                .filter(idx.eq(idx))
-                .filter(request_key.eq(request_key)),
+                .filter(block_col.eq(block))
+                .filter(idx_col.eq(idx))
+                .filter(request_key_col.eq(request_key)),
         )
         .execute(&mut conn)?;
         Ok(deleted)
@@ -155,12 +158,14 @@ impl<'a> TransactionsRepository<'a> {
         block: &str,
         request_key: &str,
     ) -> Result<usize, diesel::result::Error> {
-        use crate::schema::transactions::dsl::*;
+        use crate::schema::transactions::dsl::{
+            block as block_column, request_key as request_key_column, transactions,
+        };
         let mut conn = self.pool.get().unwrap();
         let deleted = diesel::delete(
             transactions
-                .filter(block.eq(block))
-                .filter(request_key.eq(request_key)),
+                .filter(block_column.eq(block))
+                .filter(request_key_column.eq(request_key)),
         )
         .execute(&mut conn)?;
         Ok(deleted)
