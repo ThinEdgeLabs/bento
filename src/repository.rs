@@ -7,6 +7,7 @@ pub struct BlocksRepository<'a> {
 }
 
 impl<'a> BlocksRepository<'a> {
+    #[allow(dead_code)]
     pub fn find_all(&self) -> Result<Vec<Block>, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -14,6 +15,7 @@ impl<'a> BlocksRepository<'a> {
         Ok(results)
     }
 
+    #[allow(dead_code)]
     pub fn insert(&self, block: &Block) -> Result<Block, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -41,6 +43,7 @@ impl<'a> BlocksRepository<'a> {
         Ok(deleted)
     }
 
+    #[allow(dead_code)]
     pub fn delete_one(&self, hash: &str) -> Result<usize, diesel::result::Error> {
         use crate::schema::blocks::dsl::{blocks as blocks_table, hash as hash_column};
         let mut conn = self.pool.get().unwrap();
@@ -55,6 +58,7 @@ pub struct EventsRepository<'a> {
 }
 
 impl<'a> EventsRepository<'a> {
+    #[allow(dead_code)]
     pub fn find_all(&self) -> Result<Vec<Event>, diesel::result::Error> {
         use crate::schema::events::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -62,6 +66,7 @@ impl<'a> EventsRepository<'a> {
         Ok(results)
     }
 
+    #[allow(dead_code)]
     pub fn insert(&self, event: &Event) -> Result<Event, diesel::result::Error> {
         use crate::schema::events::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -88,6 +93,7 @@ impl<'a> EventsRepository<'a> {
         Ok(deleted)
     }
 
+    #[allow(dead_code)]
     pub fn delete_one(
         &self,
         block: &str,
@@ -114,6 +120,7 @@ pub struct TransactionsRepository<'a> {
 }
 
 impl<'a> TransactionsRepository<'a> {
+    #[allow(dead_code)]
     pub fn find_all(&self) -> Result<Vec<Transaction>, diesel::result::Error> {
         use crate::schema::transactions::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -123,6 +130,7 @@ impl<'a> TransactionsRepository<'a> {
         Ok(results)
     }
 
+    #[allow(dead_code)]
     pub fn insert(&self, transaction: &Transaction) -> Result<Transaction, diesel::result::Error> {
         use crate::schema::transactions::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -153,6 +161,7 @@ impl<'a> TransactionsRepository<'a> {
         Ok(deleted)
     }
 
+    #[allow(dead_code)]
     pub fn delete_one(
         &self,
         block: &str,

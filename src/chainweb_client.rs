@@ -9,6 +9,7 @@ use self::tx_result::PactTransactionResult;
 const HOST: &str = "http://147.182.182.28/chainweb/0.0/mainnet01";
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct BlockHeaderBranchResponse {
     items: Vec<String>,
     next: Option<String>,
@@ -238,6 +239,7 @@ pub async fn get_cut() -> Result<Cut, Box<dyn Error>> {
     Ok(response)
 }
 
+#[allow(dead_code)]
 async fn get_block_hashes_branches(
     chain: &ChainId,
     bounds: &Bounds,
