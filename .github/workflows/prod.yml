@@ -8,10 +8,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    env:
-      # CI: 1
-      # CARGO_INCREMENTAL: false
-
     steps:
       - uses: actions/checkout@v3
 
