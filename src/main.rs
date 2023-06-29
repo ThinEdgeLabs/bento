@@ -14,6 +14,10 @@ use repository::*;
 async fn main() {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     dotenv().ok();
+
+    let mut migration_conn = db::migration_connection();
+    db::run_migrations(&mut migration_conn).unwrap();
+
     let pool = db::initialize_db_pool();
     let mut blocks = BlocksRepository { pool: &pool };
     let mut events = EventsRepository { pool: &pool };
