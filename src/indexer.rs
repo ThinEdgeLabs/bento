@@ -287,26 +287,13 @@ pub async fn fetch_transactions_results(
     request_keys: &Vec<String>,
     chain: &ChainId,
 ) -> Result<Vec<PactTransactionResult>, Box<dyn Error>> {
-    use futures::StreamExt;
-
     let transactions_per_request = 10;
     let concurrent_requests = 40;
     let mut results: Vec<PactTransactionResult> = vec![];
 
     //TODO: Try to use tokio::StreamExt instead so we can return a result
     futures::stream::iter(request_keys.chunks(transactions_per_request))
-        .map(|chunk| async move {
-            // match poll(&chunk.to_vec(), &chain).await {
-            //     Ok(resp) => {
-            //         //Ok(resp.into_values().collect::<Vec<PactTransactionResult>>())
-            //     }
-            //     Err(e) => {
-            //         log::error!("{:#?}", e);
-            //         //Err("error")
-            //     }
-            // }
-            poll(&chunk.to_vec(), &chain).await
-        })
+        .map(|chunk| async move { poll(&chunk.to_vec(), &chain).await })
         .buffer_unordered(concurrent_requests)
         .for_each(|result| {
             match result {
