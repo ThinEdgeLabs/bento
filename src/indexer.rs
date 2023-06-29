@@ -1,5 +1,7 @@
 use bigdecimal::BigDecimal;
 use chrono::NaiveDateTime;
+use futures::stream;
+use futures::StreamExt;
 use serde_json::Value;
 use std::error::Error;
 use std::str::FromStr;
@@ -13,23 +15,26 @@ use crate::models::*;
 use crate::repository::*;
 
 pub struct Indexer<'a> {
-    pub blocks: BlocksRepository<'a>,
-    pub events: EventsRepository<'a>,
-    pub transactions: TransactionsRepository<'a>,
+    pub blocks: &'a BlocksRepository<'a>,
+    pub events: &'a EventsRepository<'a>,
+    pub transactions: &'a TransactionsRepository<'a>,
 }
 
 impl<'a> Indexer<'a> {
-    pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn run(&self) -> Result<(), Box<dyn Error>> {
         let cut = get_cut().await.unwrap();
-        let chain = ChainId(0);
-        let last_block_hash = cut.hashes.get(&chain).unwrap();
-        //TODO: Index all chains
-        self.index_chain(last_block_hash, &chain).await?;
+        stream::iter(cut.hashes)
+            .map(|(chain, last_block_hash)| async move {
+                self.index_chain(&last_block_hash, &chain).await
+            })
+            .buffer_unordered(2)
+            .collect::<Vec<Result<(), Box<dyn Error>>>>()
+            .await;
         Ok(())
     }
 
     async fn index_chain(
-        &mut self,
+        &self,
         last_block_hash: &BlockHash,
         chain: &ChainId,
     ) -> Result<(), Box<dyn Error>> {
