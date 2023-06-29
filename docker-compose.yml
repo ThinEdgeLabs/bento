@@ -15,11 +15,3 @@ services:
     restart: always
     ports:
       - 8080:8080
-
-  bento:
-    build: .
-    restart: always
-    depends_on:
-      - db
-    environment:
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/bento
