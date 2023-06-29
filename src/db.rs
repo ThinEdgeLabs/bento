@@ -2,7 +2,7 @@ use diesel::pg::PgConnection;
 use diesel::r2d2;
 use std::env;
 
-type DbPool = r2d2::Pool<r2d2::ConnectionManager<PgConnection>>;
+pub type DbPool = r2d2::Pool<r2d2::ConnectionManager<PgConnection>>;
 
 pub fn initialize_db_pool() -> DbPool {
     let database_url = env::var("DATABASE_URL").expect("Missing DATABASE_URL");

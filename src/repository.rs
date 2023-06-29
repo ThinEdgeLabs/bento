@@ -1,162 +1,168 @@
+use super::db::DbPool;
 use super::models::*;
-use diesel::pg::PgConnection;
 use diesel::prelude::*;
 
 pub struct BlocksRepository<'a> {
-    pub db: &'a mut PgConnection,
+    pub pool: &'a DbPool,
 }
 
 impl<'a> BlocksRepository<'a> {
-    pub fn find_all(&mut self) -> Result<Vec<Block>, diesel::result::Error> {
+    pub fn find_all(&self) -> Result<Vec<Block>, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
-        let results = blocks.select(Block::as_select()).load::<Block>(self.db)?;
+        let mut conn = self.pool.get().unwrap();
+        let results = blocks.select(Block::as_select()).load::<Block>(&mut conn)?;
         Ok(results)
     }
 
-    pub fn insert(&mut self, block: &Block) -> Result<Block, diesel::result::Error> {
+    pub fn insert(&self, block: &Block) -> Result<Block, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
+        let mut conn = self.pool.get().unwrap();
         let new_block = diesel::insert_into(blocks)
             .values(block)
             .returning(Block::as_returning())
-            .get_result(self.db)?;
+            .get_result(&mut conn)?;
         Ok(new_block)
     }
 
-    pub fn insert_batch(
-        &mut self,
-        blocks: &Vec<Block>,
-    ) -> Result<Vec<Block>, diesel::result::Error> {
+    pub fn insert_batch(&self, blocks: &Vec<Block>) -> Result<Vec<Block>, diesel::result::Error> {
         use crate::schema::blocks::dsl::blocks as blocks_table;
+        let mut conn = self.pool.get().unwrap();
         let inserted = diesel::insert_into(blocks_table)
             .values(blocks)
             .returning(Block::as_returning())
-            .get_results(self.db)?;
+            .get_results(&mut conn)?;
         Ok(inserted)
     }
 
-    pub fn delete_all(&mut self) -> Result<usize, diesel::result::Error> {
+    pub fn delete_all(&self) -> Result<usize, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
-        let deleted = diesel::delete(blocks).execute(self.db)?;
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(blocks).execute(&mut conn)?;
         Ok(deleted)
     }
 
-    pub fn delete_one(&mut self, hash: &str) -> Result<usize, diesel::result::Error> {
+    pub fn delete_one(&self, hash: &str) -> Result<usize, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
-        let deleted = diesel::delete(blocks.filter(hash.eq(hash))).execute(self.db)?;
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(blocks.filter(hash.eq(hash))).execute(&mut conn)?;
         Ok(deleted)
     }
 }
 
 pub struct EventsRepository<'a> {
-    pub db: &'a mut PgConnection,
+    pub pool: &'a DbPool,
 }
 
 impl<'a> EventsRepository<'a> {
-    pub fn find_all(&mut self) -> Result<Vec<Event>, diesel::result::Error> {
+    pub fn find_all(&self) -> Result<Vec<Event>, diesel::result::Error> {
         use crate::schema::events::dsl::*;
-        let results = events.select(Event::as_select()).load::<Event>(self.db)?;
+        let mut conn = self.pool.get().unwrap();
+        let results = events.select(Event::as_select()).load::<Event>(&mut conn)?;
         Ok(results)
     }
 
-    pub fn insert(&mut self, event: &Event) -> Result<Event, diesel::result::Error> {
+    pub fn insert(&self, event: &Event) -> Result<Event, diesel::result::Error> {
         use crate::schema::events::dsl::*;
+        let mut conn = self.pool.get().unwrap();
         let new_event = diesel::insert_into(events)
             .values(event)
             .returning(Event::as_returning())
-            .get_result(self.db)?;
+            .get_result(&mut conn)?;
         Ok(new_event)
     }
 
-    pub fn insert_batch(
-        &mut self,
-        events: &Vec<Event>,
-    ) -> Result<Vec<Event>, diesel::result::Error> {
+    pub fn insert_batch(&self, events: &Vec<Event>) -> Result<Vec<Event>, diesel::result::Error> {
         use crate::schema::events::dsl::events as events_table;
+        let mut conn = self.pool.get().unwrap();
         let inserted = diesel::insert_into(events_table)
             .values(events)
-            .get_results(self.db)?;
+            .get_results(&mut conn)?;
         Ok(inserted)
     }
 
-    pub fn delete_all(&mut self) -> Result<usize, diesel::result::Error> {
+    pub fn delete_all(&self) -> Result<usize, diesel::result::Error> {
         use crate::schema::events::dsl::*;
-        let deleted = diesel::delete(events).execute(self.db)?;
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(events).execute(&mut conn)?;
         Ok(deleted)
     }
 
     pub fn delete_one(
-        &mut self,
+        &self,
         block: &str,
         idx: i64,
         request_key: &str,
     ) -> Result<usize, diesel::result::Error> {
         use crate::schema::events::dsl::*;
+        let mut conn = self.pool.get().unwrap();
         let deleted = diesel::delete(
             events
                 .filter(block.eq(block))
                 .filter(idx.eq(idx))
                 .filter(request_key.eq(request_key)),
         )
-        .execute(self.db)?;
+        .execute(&mut conn)?;
         Ok(deleted)
     }
 }
 
 pub struct TransactionsRepository<'a> {
-    pub db: &'a mut PgConnection,
+    pub pool: &'a DbPool,
 }
 
 impl<'a> TransactionsRepository<'a> {
-    pub fn find_all(&mut self) -> Result<Vec<Transaction>, diesel::result::Error> {
+    pub fn find_all(&self) -> Result<Vec<Transaction>, diesel::result::Error> {
         use crate::schema::transactions::dsl::*;
+        let mut conn = self.pool.get().unwrap();
         let results = transactions
             .select(Transaction::as_select())
-            .load::<Transaction>(self.db)?;
+            .load::<Transaction>(&mut conn)?;
         Ok(results)
     }
 
-    pub fn insert(
-        &mut self,
-        transaction: &Transaction,
-    ) -> Result<Transaction, diesel::result::Error> {
+    pub fn insert(&self, transaction: &Transaction) -> Result<Transaction, diesel::result::Error> {
         use crate::schema::transactions::dsl::*;
+        let mut conn = self.pool.get().unwrap();
         let transaction = diesel::insert_into(transactions)
             .values(transaction)
             .returning(Transaction::as_returning())
-            .get_result(self.db)?;
+            .get_result(&mut conn)?;
         Ok(transaction)
     }
 
     pub fn insert_batch(
-        &mut self,
+        &self,
         transactions: &Vec<Transaction>,
     ) -> Result<Vec<Transaction>, diesel::result::Error> {
         use crate::schema::transactions::dsl::transactions as transactions_table;
+        let mut conn = self.pool.get().unwrap();
         let inserted = diesel::insert_into(transactions_table)
             .values(transactions)
             .returning(Transaction::as_returning())
-            .get_results(self.db)?;
+            .get_results(&mut conn)?;
         Ok(inserted)
     }
 
     pub fn delete_all(&mut self) -> Result<usize, diesel::result::Error> {
         use crate::schema::transactions::dsl::*;
-        let deleted = diesel::delete(transactions).execute(self.db)?;
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(transactions).execute(&mut conn)?;
         Ok(deleted)
     }
 
     pub fn delete_one(
-        &mut self,
+        &self,
         block: &str,
         request_key: &str,
     ) -> Result<usize, diesel::result::Error> {
         use crate::schema::transactions::dsl::*;
+        let mut conn = self.pool.get().unwrap();
         let deleted = diesel::delete(
             transactions
                 .filter(block.eq(block))
                 .filter(request_key.eq(request_key)),
         )
-        .execute(self.db)?;
+        .execute(&mut conn)?;
         Ok(deleted)
     }
 }
