@@ -5,4 +5,8 @@ services:
 
   db:
     environment:
-      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+  bento:
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/bento
