@@ -148,7 +148,7 @@ pub enum Payload {
     #[serde(rename(deserialize = "cont", serialize = "cont"))]
     Cont(ContPayload),
     #[serde(rename(deserialize = "exec", serialize = "exec"))]
-    Exec(ExecPayload),
+    Exec(Option<ExecPayload>),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -368,7 +368,7 @@ mod tests {
         let cmd = Command {
             network_id: Network::Mainnet,
             nonce: String::from("\"2023-06-28T07:50:55.438Z\""),
-            payload: Payload::Exec(exec),
+            payload: Payload::Exec(Some(exec)),
             signers: vec![Signer {
                 public_key: String::from(
                     "48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173",

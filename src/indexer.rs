@@ -56,7 +56,7 @@ impl<'a> Indexer<'a> {
                 .await
                 .unwrap();
             log::debug!("Received headers: {:#?}", headers_response);
-            log::info!("Elapsed time to get headers: {:.2?}", before.elapsed());
+            log::debug!("Elapsed time to get headers: {:.2?}", before.elapsed());
             match headers_response.next {
                 Some(next_cursor) => {
                     log::info!(
@@ -79,7 +79,7 @@ impl<'a> Indexer<'a> {
             )
             .await
             .unwrap();
-            log::info!(
+            log::debug!(
                 "Elapsed time to get payloads: {:.2?}",
                 before_payloads.elapsed()
             );
@@ -103,7 +103,7 @@ impl<'a> Indexer<'a> {
                     })
                     .collect::<Vec<Block>>(),
             ) {
-                Ok(_) => log::info!("Inserted blocks"),
+                Ok(_) => log::debug!("Inserted blocks"),
                 Err(e) => log::error!("Error inserting blocks: {:#?}", e),
             }
 
@@ -113,21 +113,21 @@ impl<'a> Indexer<'a> {
                 .map(|e| (e.hash.to_string(), e))
                 .collect::<std::collections::HashMap<String, &SignedTransaction>>(
             );
-            log::info!("Fetching {} transactions", signed_txs.len());
+            log::debug!("Fetching {} transactions", signed_txs.len());
             let before_transactions = Instant::now();
             let results = fetch_transactions_results(
                 &signed_txs_by_hash.keys().map(|e| e.to_string()).collect(),
                 chain,
             )
             .await;
-            log::info!(
+            log::debug!(
                 "Elapsed time to fetch transactions: {:.2?}",
                 before_transactions.elapsed()
             );
 
             match results {
                 Ok(results) => {
-                    log::info!("Received {} transactions", results.len());
+                    log::debug!("Received {} transactions", results.len());
                     let before_txs = Instant::now();
                     let txs: Vec<Transaction> = results
                         .iter()
@@ -137,12 +137,12 @@ impl<'a> Indexer<'a> {
                             build_transaction(&signed_tx, &pact_result)
                         })
                         .collect();
-                    log::info!("{} transactions are continuations", txs.len());
+                    log::debug!("{} transactions are continuations", txs.len());
                     match self.transactions.insert_batch(&txs) {
-                        Ok(inserted) => log::info!("Inserted {} transactions", inserted.len()),
+                        Ok(inserted) => log::debug!("Inserted {} transactions", inserted.len()),
                         Err(e) => log::error!("Error inserting transactions: {:#?}", e),
                     }
-                    log::info!(
+                    log::debug!(
                         "Elapsed time to insert transactions: {:.2?}",
                         before_txs.elapsed()
                     );
@@ -157,10 +157,10 @@ impl<'a> Indexer<'a> {
                         .flatten()
                         .collect();
                     match self.events.insert_batch(&events) {
-                        Ok(inserted) => log::info!("Inserted {} events", inserted.len()),
+                        Ok(inserted) => log::debug!("Inserted {} events", inserted.len()),
                         Err(e) => log::error!("Error inserting events: {:#?}", e),
                     }
-                    log::info!(
+                    log::debug!(
                         "Elapsed time to insert events: {:.2?}",
                         before_events.elapsed()
                     );
@@ -217,13 +217,22 @@ fn build_transaction(
     pact_result: &PactTransactionResult,
 ) -> Transaction {
     let continuation = pact_result.continuation.clone();
-    let command = serde_json::from_str::<Command>(&signed_tx.cmd).unwrap();
+    let command = serde_json::from_str::<Command>(&signed_tx.cmd);
+    match &command {
+        Ok(_) => (),
+        Err(e) => {
+            log::info!("Error parsing command: {:#?}", signed_tx);
+            log::error!("{:#?}", e);
+        }
+    }
+    let command = command.unwrap();
     let (code, data, proof) = match command.payload {
-        Payload::Exec(value) => (Some(value.code), Some(value.data), None),
+        Payload::Exec(Some(value)) => (Some(value.code), Some(value.data), None),
+        Payload::Exec(None) => (None, None, None),
         Payload::Cont(value) => (None, Some(value.data), Some(value.proof)),
     };
 
-    Transaction {
+    return Transaction {
         bad_result: pact_result.result.error.clone(),
         block: pact_result.metadata.block_hash.clone(),
         chain_id: command.meta.chain_id.parse().unwrap(),
@@ -255,7 +264,7 @@ fn build_transaction(
         step: continuation.map(|e| e["step"].as_i64().unwrap()),
         ttl: command.meta.ttl as i64,
         tx_id: pact_result.tx_id,
-    }
+    };
 }
 
 fn build_events(
