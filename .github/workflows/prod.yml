@@ -1,0 +1,38 @@
+name: Deploy to prod
+
+on:
+  push:
+    branches: [prod]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      # CI: 1
+      # CARGO_INCREMENTAL: false
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Rsync files to server
+        uses: Pendect/action-rsyncer@v1.1.0
+        env:
+          DEPLOY_KEY: ${{secrets.DEPLOY_KEY}}
+        with:
+          flags: '-vzr --delete'
+          options:
+          ssh_options: ''
+          src: './'
+          dest: 'root@${{ secrets.HOST }}:/root/bento'
+
+      - name: Start service
+        uses: fifsky/ssh-action@v0.0.4
+        with:
+          command: |
+            cd bento
+            docker compose up -d --build --force-recreate
+          host: ${{ secrets.HOST }}
+          user: root
+          key: ${{ secrets.DEPLOY_KEY}}
+          args: "-tt -vvv"
