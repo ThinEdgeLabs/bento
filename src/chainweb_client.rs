@@ -125,8 +125,11 @@ pub struct Meta {
     pub creation_time: f64,
     #[serde(rename(deserialize = "gasLimit"))]
     pub gas_limit: i32,
-    #[serde(rename(deserialize = "gasPrice"))]
-    pub gas_price: f32,
+    #[serde(
+        rename(deserialize = "gasPrice"),
+        deserialize_with = "de_f64_or_string_as_f64"
+    )]
+    pub gas_price: f64,
     pub sender: String,
     pub ttl: u32,
 }
@@ -135,6 +138,14 @@ fn de_f64_or_u64_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f6
     Ok(match Value::deserialize(deserializer)? {
         Value::Number(num) => num.as_f64().unwrap(),
         _ => return Err(serde::de::Error::custom("expected a number")),
+    })
+}
+
+fn de_f64_or_string_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+    Ok(match Value::deserialize(deserializer)? {
+        Value::Number(num) => num.as_f64().unwrap(),
+        Value::String(s) => s.parse().unwrap(),
+        _ => return Err(serde::de::Error::custom("expected a number or a string")),
     })
 }
 
@@ -404,11 +415,18 @@ mod tests {
     }
 
     #[test]
-    fn test_parsing_payload() {
+    fn test_parsing_command() {
         let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":null,\"cont\":{\"proof\":\"proof\",\"pactId\":\"oPTGT8K99LDbqdwrPR-HYhM2aDGVpcokB-wZ_UQKiF0\",\"rollback\":false,\"step\":1,\"data\":{}}},\"signers\":[],\"meta\":{\"creationTime\":1688098548,\"ttl\":28800,\"gasLimit\":850,\"chainId\":\"1\",\"gasPrice\":1.0E-8,\"sender\":\"kadena-xchain-gas\"},\"nonce\":\"2023-06-30T04:15:48.169508637Z[UTC]\"}";
         let command = serde_json::from_str::<Command>(json).unwrap();
         assert!(command.payload.exec.is_none());
         assert!(command.payload.cont.is_some());
+    }
+
+    #[test]
+    fn test_parsing_command_with_gas_price_as_string() {
+        let json = "{\"meta\":{\"chainId\":\"0\",\"creationTime\":1688039944,\"gasLimit\":8000,\"gasPrice\":\"0.00000001\",\"sender\":\"k:0b259904ba912dcfe7af4c70016e1a93982610c740b27c766ad329772ad44bd3\",\"ttl\":28860},\"networkId\":\"mainnet01\",\"nonce\":\"2023-06-29T19:59:04Z.189Z\",\"payload\":{\"exec\":{\"code\":\"(coin.transfer-create \\\"k:0b259904ba912dcfe7af4c70016e1a93982610c740b27c766ad329772ad44bd3\\\" \\\"k:5c01f1f5d0aa2fe56ad69b50025d56a1e2043cd76f743e792da7adf04d7abd06\\\" (read-keyset \\\"receiver-guard\\\") 230.9)\",\"data\":{\"receiver-guard\":{\"keys\":[\"5c01f1f5d0aa2fe56ad69b50025d56a1e2043cd76f743e792da7adf04d7abd06\"],\"pred\":\"keys-all\"}}}},\"signers\":[{\"clist\":[{\"args\":[\"k:0b259904ba912dcfe7af4c70016e1a93982610c740b27c766ad329772ad44bd3\",\"k:5c01f1f5d0aa2fe56ad69b50025d56a1e2043cd76f743e792da7adf04d7abd06\",230.9],\"name\":\"coin.TRANSFER\"},{\"args\":[],\"name\":\"coin.GAS\"}],\"pubKey\":\"0b259904ba912dcfe7af4c70016e1a93982610c740b27c766ad329772ad44bd3\"}]}";
+        let command = serde_json::from_str::<Command>(json).unwrap();
+        assert!(command.meta.gas_price == 0.00000001);
     }
 }
 
