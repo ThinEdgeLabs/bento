@@ -223,7 +223,7 @@ fn build_transaction(
         Ok(_) => (),
         Err(e) => {
             log::info!("Error parsing command: {:#?}", signed_tx);
-            log::error!("{:#?}", e);
+            panic!("{:#?}", e);
         }
     }
     let command = command.unwrap();

@@ -4,7 +4,7 @@ services:
 
   db:
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
 
   bento:
     build: .
@@ -12,5 +12,5 @@ services:
     depends_on:
       - db
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/bento
+      DATABASE_URL: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/bento"
       RUST_LOG: info
