@@ -60,7 +60,8 @@ impl<'a> Indexer<'a> {
             match headers_response.next {
                 Some(next_cursor) => {
                     log::info!(
-                        "Current height: {}",
+                        "Chain {} current height: {}",
+                        chain.0,
                         headers_response.items.last().unwrap().height
                     );
                     next = Some(next_cursor);
@@ -227,9 +228,15 @@ fn build_transaction(
     }
     let command = command.unwrap();
     let (code, data, proof) = match command.payload {
-        Payload::Exec(Some(value)) => (Some(value.code), Some(value.data), None),
-        Payload::Exec(None) => (None, None, None),
-        Payload::Cont(value) => (None, Some(value.data), Some(value.proof)),
+        Payload {
+            exec: Some(value),
+            cont: None,
+        } => (Some(value.code), Some(value.data), None),
+        Payload {
+            exec: None,
+            cont: Some(value),
+        } => (None, Some(value.data), Some(value.proof)),
+        _ => (None, None, None),
     };
 
     return Transaction {

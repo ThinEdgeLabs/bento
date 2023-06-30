@@ -144,11 +144,9 @@ pub struct Command {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub enum Payload {
-    #[serde(rename(deserialize = "cont", serialize = "cont"))]
-    Cont(ContPayload),
-    #[serde(rename(deserialize = "exec", serialize = "exec"))]
-    Exec(Option<ExecPayload>),
+pub struct Payload {
+    pub exec: Option<ExecPayload>,
+    pub cont: Option<ContPayload>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -336,7 +334,10 @@ mod tests {
         };
         let cmd = Command {
             network_id: Network::Mainnet,
-            payload: Payload::Cont(cont),
+            payload: Payload {
+                exec: None,
+                cont: Some(cont),
+            },
             signers: vec![],
             nonce: String::from("\"2023-06-28T05:59:55.767Z\""),
             meta: Meta {
@@ -368,7 +369,10 @@ mod tests {
         let cmd = Command {
             network_id: Network::Mainnet,
             nonce: String::from("\"2023-06-28T07:50:55.438Z\""),
-            payload: Payload::Exec(Some(exec)),
+            payload: Payload {
+                exec: Some(exec),
+                cont: None,
+            },
             signers: vec![Signer {
                 public_key: String::from(
                     "48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173",
@@ -386,5 +390,13 @@ mod tests {
             },
         };
         assert_eq!(serde_json::from_str::<Command>(&json).unwrap(), cmd);
+    }
+
+    #[test]
+    fn test_parsing_payload() {
+        let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":null,\"cont\":{\"proof\":\"proof\",\"pactId\":\"oPTGT8K99LDbqdwrPR-HYhM2aDGVpcokB-wZ_UQKiF0\",\"rollback\":false,\"step\":1,\"data\":{}}},\"signers\":[],\"meta\":{\"creationTime\":1688098548,\"ttl\":28800,\"gasLimit\":850,\"chainId\":\"1\",\"gasPrice\":1.0E-8,\"sender\":\"kadena-xchain-gas\"},\"nonce\":\"2023-06-30T04:15:48.169508637Z[UTC]\"}";
+        let command = serde_json::from_str::<Command>(json).unwrap();
+        assert!(command.payload.exec.is_none());
+        assert!(command.payload.cont.is_some());
     }
 }

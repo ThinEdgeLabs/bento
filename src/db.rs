@@ -1,9 +1,12 @@
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::r2d2;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use std::env;
+use std::error::Error;
 
 pub type DbPool = r2d2::Pool<r2d2::ConnectionManager<PgConnection>>;
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
 pub fn initialize_db_pool() -> DbPool {
     let database_url = env::var("DATABASE_URL").expect("Missing DATABASE_URL");
@@ -12,10 +15,6 @@ pub fn initialize_db_pool() -> DbPool {
         .build(manager)
         .expect("Failed to create pool")
 }
-
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use std::error::Error;
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
 pub fn migration_connection() -> diesel::PgConnection {
     let database_url = env::var("DATABASE_URL").expect("Missing DATABASE_URL");
