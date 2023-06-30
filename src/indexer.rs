@@ -27,7 +27,7 @@ impl<'a> Indexer<'a> {
             .map(|(chain, last_block_hash)| async move {
                 self.index_chain(&last_block_hash, &chain).await
             })
-            .buffer_unordered(2)
+            .buffer_unordered(4)
             .collect::<Vec<Result<(), Box<dyn Error>>>>()
             .await;
         Ok(())

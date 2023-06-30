@@ -273,7 +273,7 @@ pub async fn get_block_headers_branches(
 ) -> Result<BlockHeaderResponse, Box<dyn Error>> {
     let endpoint = format!("/chain/{chain}/header/branch");
     let mut url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    url.query_pairs_mut().append_pair("limit", "10");
+    url.query_pairs_mut().append_pair("limit", "20");
     if let Some(next) = next {
         url.query_pairs_mut().append_pair("next", &next);
     }
