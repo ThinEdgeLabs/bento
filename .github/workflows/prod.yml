@@ -17,7 +17,7 @@ jobs:
           DEPLOY_KEY: ${{secrets.DEPLOY_KEY}}
         with:
           flags: '-vzr --delete'
-          options:
+          options: '--exclude=.env'
           ssh_options: ''
           src: './'
           dest: 'root@${{ secrets.HOST }}:/root/bento'

@@ -1,4 +1,5 @@
 use reqwest::Url;
+use serde::Deserializer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Display;
@@ -117,14 +118,24 @@ pub enum Network {
 pub struct Meta {
     #[serde(rename(deserialize = "chainId"))]
     pub chain_id: String,
-    #[serde(rename(deserialize = "creationTime"))]
-    pub creation_time: u64,
+    #[serde(
+        rename(deserialize = "creationTime",),
+        deserialize_with = "de_f64_or_u64_as_f64"
+    )]
+    pub creation_time: f64,
     #[serde(rename(deserialize = "gasLimit"))]
     pub gas_limit: i32,
     #[serde(rename(deserialize = "gasPrice"))]
     pub gas_price: f32,
     pub sender: String,
     pub ttl: u32,
+}
+
+fn de_f64_or_u64_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+    Ok(match Value::deserialize(deserializer)? {
+        Value::Number(num) => num.as_f64().unwrap(),
+        _ => return Err(serde::de::Error::custom("expected a number")),
+    })
 }
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -342,7 +353,7 @@ mod tests {
             nonce: String::from("\"2023-06-28T05:59:55.767Z\""),
             meta: Meta {
                 chain_id: String::from("0"),
-                creation_time: 1687931936,
+                creation_time: 1687931936.0,
                 gas_limit: 850,
                 gas_price: 0.00000001,
                 sender: String::from("xwallet-xchain-gas"),
@@ -380,7 +391,7 @@ mod tests {
             }],
             meta: Meta {
                 chain_id: String::from("0"),
-                creation_time: 1687938640,
+                creation_time: 1687938640.0,
                 gas_limit: 1000,
                 gas_price: 0.000001,
                 sender: String::from(
@@ -400,3 +411,5 @@ mod tests {
         assert!(command.payload.cont.is_some());
     }
 }
+
+//"{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"user-ks\":{\"pred\":\"keys-all\",\"keys\":[\"4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\"]},\"account\":\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\"},\"code\":\"(coin.transfer-crosschain \\\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\\\" \\\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\\\" (read-keyset \\\"user-ks\\\") \\\"8\\\" 0.000355000000)\"}},\"signers\":[{\"clist\":[{\"name\":\"coin.TRANSFER_XCHAIN\",\"args\":[\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\",\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\",0.000355,\"8\"]}],\"pubKey\":\"4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\"}],\"meta\":{\"creationTime\":1688045415.29,\"ttl\":1200,\"gasLimit\":1100,\"chainId\":\"3\",\"gasPrice\":2e-8,\"sender\":\"746d0601603d1cc907ae82fed1c4bdf3\"},\"nonce\":\"\\\"1688045415.292\\\"\"}"
