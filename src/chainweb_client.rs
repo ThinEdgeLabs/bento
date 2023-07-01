@@ -29,7 +29,7 @@ pub struct BlockHash {
     pub hash: String,
 }
 
-#[derive(Deserialize, Debug, PartialEq, Eq, Hash)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Hash, Clone)]
 pub struct ChainId(pub u16);
 
 impl Display for ChainId {

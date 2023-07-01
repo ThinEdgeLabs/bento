@@ -5,11 +5,12 @@ use futures::StreamExt;
 use serde_json::Value;
 use std::error::Error;
 use std::str::FromStr;
+use std::vec;
 
 use crate::chainweb_client::tx_result::PactTransactionResult;
 use crate::chainweb_client::{
-    get_block_headers_branches, get_block_payload_batch, get_cut, poll, BlockHash, BlockHeader,
-    BlockPayload, Bounds, ChainId, Command, Hash, Payload, SignedTransaction,
+    get_block_headers_branches, get_block_payload_batch, get_cut, poll, BlockHeader, BlockPayload,
+    Bounds, ChainId, Command, Hash, Payload, SignedTransaction,
 };
 use crate::models::*;
 use crate::repository::*;
@@ -23,31 +24,58 @@ pub struct Indexer<'a> {
 impl<'a> Indexer<'a> {
     pub async fn run(&self) -> Result<(), Box<dyn Error>> {
         let cut = get_cut().await.unwrap();
-        stream::iter(cut.hashes)
-            .map(|(chain, last_block_hash)| async move {
-                self.index_chain(&last_block_hash, &chain).await
-            })
+        let mut bounds: Vec<(ChainId, Bounds)> = vec![];
+        cut.hashes.iter().for_each(|(chain, last_block_hash)| {
+            log::info!(
+                "Chain: {}, current height: {}, last block hash: {}",
+                chain.0,
+                last_block_hash.height,
+                last_block_hash.hash
+            );
+            match self
+                .blocks
+                .find_min_max_height_blocks(chain.0 as i64)
+                .unwrap()
+            {
+                (Some(min_block), Some(max_block)) => {
+                    bounds.push((
+                        chain.clone(),
+                        Bounds {
+                            lower: vec![Hash(max_block.hash)],
+                            upper: vec![Hash(last_block_hash.hash.to_string())],
+                        },
+                    ));
+                    if min_block.height > 0 {
+                        bounds.push((
+                            chain.clone(),
+                            Bounds {
+                                lower: vec![],
+                                upper: vec![Hash(min_block.hash)],
+                            },
+                        ));
+                    }
+                }
+                (None, None) => bounds.push((
+                    chain.clone(),
+                    Bounds {
+                        lower: vec![],
+                        upper: vec![Hash(last_block_hash.hash.to_string())],
+                    },
+                )),
+                _ => {}
+            }
+        });
+        log::info!("Bounds: {:#?}", bounds);
+        stream::iter(bounds)
+            .map(|(chain, bounds)| async move { self.index_chain(&bounds, &chain).await })
             .buffer_unordered(4)
             .collect::<Vec<Result<(), Box<dyn Error>>>>()
             .await;
         Ok(())
     }
 
-    async fn index_chain(
-        &self,
-        last_block_hash: &BlockHash,
-        chain: &ChainId,
-    ) -> Result<(), Box<dyn Error>> {
-        log::info!(
-            "Syncing chain: {}, current height: {}, last block hash: {}",
-            chain.0,
-            last_block_hash.height,
-            last_block_hash.hash
-        );
-        let bounds = Bounds {
-            lower: vec![],
-            upper: vec![Hash(last_block_hash.hash.to_string())],
-        };
+    async fn index_chain(&self, bounds: &Bounds, chain: &ChainId) -> Result<(), Box<dyn Error>> {
+        log::info!("Syncing chain: {}, bounds: {:?}", chain.0, bounds,);
         let mut next: Option<String> = None;
         use std::time::Instant;
         loop {
@@ -55,7 +83,7 @@ impl<'a> Indexer<'a> {
             let headers_response = get_block_headers_branches(&chain, &bounds, &next)
                 .await
                 .unwrap();
-            log::debug!("Received headers: {:#?}", headers_response);
+            //log::debug!("Received headers: {:#?}", headers_response);
             log::debug!("Elapsed time to get headers: {:.2?}", before.elapsed());
             match headers_response.next {
                 Some(next_cursor) => {
@@ -85,7 +113,7 @@ impl<'a> Indexer<'a> {
                 before_payloads.elapsed()
             );
 
-            log::debug!("Received blocks payloads: {:#?}", payloads);
+            //log::debug!("Received blocks payloads: {:#?}", payloads);
             let headers_by_payload_hash = headers_response
                 .items
                 .iter()
@@ -104,7 +132,7 @@ impl<'a> Indexer<'a> {
                     })
                     .collect::<Vec<Block>>(),
             ) {
-                Ok(_) => log::debug!("Inserted blocks"),
+                Ok(_) => {}
                 Err(e) => log::error!("Error inserting blocks: {:#?}", e),
             }
 
@@ -138,9 +166,8 @@ impl<'a> Indexer<'a> {
                             build_transaction(&signed_tx, &pact_result)
                         })
                         .collect();
-                    log::debug!("{} transactions are continuations", txs.len());
                     match self.transactions.insert_batch(&txs) {
-                        Ok(inserted) => log::debug!("Inserted {} transactions", inserted.len()),
+                        Ok(_) => {}
                         Err(e) => log::error!("Error inserting transactions: {:#?}", e),
                     }
                     log::debug!(
@@ -158,7 +185,7 @@ impl<'a> Indexer<'a> {
                         .flatten()
                         .collect();
                     match self.events.insert_batch(&events) {
-                        Ok(inserted) => log::debug!("Inserted {} events", inserted.len()),
+                        Ok(_) => {}
                         Err(e) => log::error!("Error inserting events: {:#?}", e),
                     }
                     log::debug!(
@@ -323,6 +350,8 @@ pub async fn fetch_transactions_results(
         .await;
     Ok(results)
 }
+
+//fn get_bounds_for_chain(chain: &ChainId) -> Vec<Bounds> {}
 
 #[cfg(test)]
 mod tests {

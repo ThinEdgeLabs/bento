@@ -16,6 +16,47 @@ impl<'a> BlocksRepository<'a> {
     }
 
     #[allow(dead_code)]
+    pub fn find_by_hash(
+        &self,
+        hash: &str,
+        chain_id: i64,
+    ) -> Result<Option<Block>, diesel::result::Error> {
+        use crate::schema::blocks::dsl::{
+            blocks as blocks_table, chain_id as chain_id_column, hash as hash_column,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let result = blocks_table
+            .filter(hash_column.eq(hash))
+            .filter(chain_id_column.eq(chain_id))
+            .select(Block::as_select())
+            .first::<Block>(&mut conn)
+            .optional()?;
+        Ok(result)
+    }
+
+    pub fn find_min_max_height_blocks(
+        &self,
+        chain_id: i64,
+    ) -> Result<(Option<Block>, Option<Block>), diesel::result::Error> {
+        use crate::schema::blocks::dsl::{
+            blocks as blocks_table, chain_id as chain_id_column, height,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let query = blocks_table.filter(chain_id_column.eq(chain_id));
+        let min_block = query
+            .order_by(height.asc())
+            .select(Block::as_select())
+            .first::<Block>(&mut conn)
+            .optional()?;
+        let max_block = query
+            .order_by(height.desc())
+            .select(Block::as_select())
+            .first::<Block>(&mut conn)
+            .optional()?;
+        Ok((min_block, max_block))
+    }
+
+    #[allow(dead_code)]
     pub fn insert(&self, block: &Block) -> Result<Block, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -36,6 +77,7 @@ impl<'a> BlocksRepository<'a> {
         Ok(inserted)
     }
 
+    #[allow(dead_code)]
     pub fn delete_all(&self) -> Result<usize, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -86,6 +128,7 @@ impl<'a> EventsRepository<'a> {
         Ok(inserted)
     }
 
+    #[allow(dead_code)]
     pub fn delete_all(&self) -> Result<usize, diesel::result::Error> {
         use crate::schema::events::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -154,6 +197,7 @@ impl<'a> TransactionsRepository<'a> {
         Ok(inserted)
     }
 
+    #[allow(dead_code)]
     pub fn delete_all(&mut self) -> Result<usize, diesel::result::Error> {
         use crate::schema::transactions::dsl::*;
         let mut conn = self.pool.get().unwrap();

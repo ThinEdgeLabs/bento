@@ -23,13 +23,6 @@ async fn main() {
     let mut events = EventsRepository { pool: &pool };
     let mut transactions = TransactionsRepository { pool: &pool };
 
-    log::info!("Deleted {} events", events.delete_all().unwrap());
-    log::info!(
-        "Deleted {} transactions",
-        transactions.delete_all().unwrap()
-    );
-    log::info!("Deleted {} blocks", blocks.delete_all().unwrap());
-
     let indexer = Indexer {
         blocks: &mut blocks,
         events: &mut events,
