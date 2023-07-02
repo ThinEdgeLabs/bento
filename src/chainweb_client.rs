@@ -181,7 +181,7 @@ pub struct Signer {
 #[derive(Deserialize, Debug, PartialEq)]
 pub struct Command {
     #[serde(rename(deserialize = "networkId"))]
-    pub network_id: Network,
+    pub network_id: Option<Network>,
     pub nonce: String,
     pub payload: Payload,
     pub signers: Vec<Signer>,
@@ -367,10 +367,11 @@ pub fn headers_stream() -> Result<impl Stream<Item = Result<(), ()>>, eventsourc
     use eventsource_client as es;
     use eventsource_client::Client;
     use std::time::Duration;
+
     let endpoint = format!("/header/updates");
     let url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
+    log::info!("connecting to {}", url.as_str());
     let client = es::ClientBuilder::for_url(url.as_str())?
-        //.header("Authorization", auth_header)?
         .reconnect(
             es::ReconnectOptions::reconnect(true)
                 .retry_initial(false)
@@ -410,7 +411,7 @@ mod tests {
             step: 1,
         };
         let cmd = Command {
-            network_id: Network::Mainnet,
+            network_id: Some(Network::Mainnet),
             payload: Payload {
                 exec: None,
                 cont: Some(cont),
@@ -444,7 +445,7 @@ mod tests {
             }),
         };
         let cmd = Command {
-            network_id: Network::Mainnet,
+            network_id: Some(Network::Mainnet),
             nonce: String::from("\"2023-06-28T07:50:55.438Z\""),
             payload: Payload {
                 exec: Some(exec),
