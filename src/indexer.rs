@@ -295,7 +295,7 @@ fn build_transaction(
         nonce: command.nonce,
         num_events: Some(pact_result.events.len() as i64),
         pact_id: continuation.clone().map(|e| e["pactId"].to_string()),
-        proof: proof.flatten().or(Some("".to_string())),
+        proof: proof.flatten(),
         request_key: pact_result.request_key.to_string(),
         rollback: continuation
             .clone()
