@@ -64,7 +64,7 @@ pub struct BlockHeader {
     pub payload_hash: String,
     pub weight: String,
     #[serde(rename(deserialize = "featureFlags"))]
-    pub feature_flags: i32,
+    pub feature_flags: i64,
     #[serde(rename(deserialize = "epochStart"))]
     pub epoch_start: i64,
     pub adjacents: HashMap<ChainId, String>,
