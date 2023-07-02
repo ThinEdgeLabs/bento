@@ -189,14 +189,16 @@ impl<'a> TransactionsRepository<'a> {
     pub fn insert_batch(
         &self,
         transactions: &Vec<Transaction>,
-    ) -> Result<Vec<Transaction>, diesel::result::Error> {
+    ) -> Result<usize, diesel::result::Error> {
         use crate::schema::transactions::dsl::transactions as transactions_table;
         let mut conn = self.pool.get().unwrap();
-        let inserted = diesel::insert_into(transactions_table)
-            .values(transactions)
-            .on_conflict_do_nothing()
-            .returning(Transaction::as_returning())
-            .get_results(&mut conn)?;
+        let mut inserted = 0;
+        for chunk in transactions.chunks(1000) {
+            inserted += diesel::insert_into(transactions_table)
+                .values(chunk)
+                .on_conflict_do_nothing()
+                .execute(&mut conn)?;
+        }
         Ok(inserted)
     }
 

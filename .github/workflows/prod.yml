@@ -24,6 +24,7 @@ jobs:
 
       - name: Start service
         uses: fifsky/ssh-action@v0.0.4
+        timeout-minutes: 3
         with:
           command: |
             cd bento
