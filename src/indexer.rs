@@ -134,7 +134,7 @@ impl<'a> Indexer<'a> {
                         .map(|pact_result| {
                             let signed_tx =
                                 signed_txs_by_hash.get(&pact_result.request_key).unwrap();
-                            build_transaction(&signed_tx, &pact_result)
+                            build_transaction(&signed_tx, &pact_result, &chain)
                         })
                         .collect();
                     match self.transactions.insert_batch(&txs) {
@@ -263,6 +263,7 @@ fn build_block(header: &BlockHeader, block_payload: &BlockPayload) -> Block {
 fn build_transaction(
     signed_tx: &SignedTransaction,
     pact_result: &PactTransactionResult,
+    chain: &ChainId,
 ) -> Transaction {
     let continuation = pact_result.continuation.clone();
     let command = serde_json::from_str::<Command>(&signed_tx.cmd);
@@ -289,7 +290,7 @@ fn build_transaction(
     return Transaction {
         bad_result: pact_result.result.error.clone(),
         block: pact_result.metadata.block_hash.clone(),
-        chain_id: command.meta.chain_id.parse().unwrap(),
+        chain_id: chain.0 as i64,
         creation_time: NaiveDateTime::from_timestamp_micros(pact_result.metadata.block_time)
             .unwrap(),
         code: code,
