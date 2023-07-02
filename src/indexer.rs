@@ -104,7 +104,7 @@ impl<'a> Indexer<'a> {
                     .collect::<Vec<Block>>(),
             ) {
                 Ok(_) => {}
-                Err(e) => log::error!("Error inserting blocks: {:#?}", e),
+                Err(e) => panic!("Error inserting blocks: {:#?}", e),
             }
 
             let signed_txs = get_signed_txs_from_payloads(&payloads);
@@ -139,7 +139,7 @@ impl<'a> Indexer<'a> {
                         .collect();
                     match self.transactions.insert_batch(&txs) {
                         Ok(_) => {}
-                        Err(e) => log::error!("Error inserting transactions: {:#?}", e),
+                        Err(e) => panic!("Error inserting transactions: {:#?}", e),
                     }
                     log::debug!(
                         "Elapsed time to insert transactions: {:.2?}",
@@ -157,7 +157,7 @@ impl<'a> Indexer<'a> {
                         .collect();
                     match self.events.insert_batch(&events) {
                         Ok(_) => {}
-                        Err(e) => log::error!("Error inserting events: {:#?}", e),
+                        Err(e) => panic!("Error inserting events: {:#?}", e),
                     }
                     log::debug!(
                         "Elapsed time to insert events: {:.2?}",
