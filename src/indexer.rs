@@ -65,36 +65,41 @@ impl<'a> Indexer<'a> {
                 _ => {}
             }
         });
-        log::info!("Bounds: {:#?}", bounds);
         stream::iter(bounds)
-            .map(|(chain, bounds)| async move { self.index_chain(&bounds, &chain).await })
-            .buffer_unordered(4)
+            .map(|(chain, bounds)| async move { self.index_chain(bounds, &chain).await })
+            .buffer_unordered(1)
             .collect::<Vec<Result<(), Box<dyn Error>>>>()
             .await;
         Ok(())
     }
 
-    async fn index_chain(&self, bounds: &Bounds, chain: &ChainId) -> Result<(), Box<dyn Error>> {
+    async fn index_chain(&self, bounds: Bounds, chain: &ChainId) -> Result<(), Box<dyn Error>> {
         log::info!("Syncing chain: {}, bounds: {:?}", chain.0, bounds,);
-        let mut next: Option<String> = None;
         use std::time::Instant;
+        let mut next_bounds = bounds;
         loop {
             let before = Instant::now();
-            let headers_response = get_block_headers_branches(&chain, &bounds, &next)
+            let headers_response = get_block_headers_branches(&chain, &next_bounds, &None)
                 .await
                 .unwrap();
             //log::debug!("Received headers: {:#?}", headers_response);
             log::debug!("Elapsed time to get headers: {:.2?}", before.elapsed());
-            match headers_response.next {
-                Some(next_cursor) => {
+            match headers_response.items[..] {
+                [] => return Ok(()),
+                _ => {
                     log::info!(
                         "Chain {} current height: {}",
                         chain.0,
                         headers_response.items.last().unwrap().height
                     );
-                    next = Some(next_cursor);
+                    log::info!("Retrieved {} blocks", headers_response.items.len());
+                    next_bounds = Bounds {
+                        lower: vec![],
+                        upper: vec![Hash(
+                            headers_response.items.last().unwrap().hash.to_string(),
+                        )],
+                    };
                 }
-                None => return Ok(()),
             }
 
             let before_payloads = Instant::now();
