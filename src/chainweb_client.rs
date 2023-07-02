@@ -124,8 +124,11 @@ pub struct Meta {
         deserialize_with = "de_f64_or_u64_as_f64"
     )]
     pub creation_time: f64,
-    #[serde(rename(deserialize = "gasLimit"))]
-    pub gas_limit: i32,
+    #[serde(
+        rename(deserialize = "gasLimit"),
+        deserialize_with = "de_i64_or_string_as_i64"
+    )]
+    pub gas_limit: i64,
     #[serde(
         rename(deserialize = "gasPrice"),
         deserialize_with = "de_f64_or_string_as_f64"
@@ -146,6 +149,14 @@ fn de_f64_or_u64_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f6
 fn de_f64_or_string_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
     Ok(match Value::deserialize(deserializer)? {
         Value::Number(num) => num.as_f64().unwrap(),
+        Value::String(s) => s.parse().unwrap(),
+        _ => return Err(serde::de::Error::custom("expected a number or a string")),
+    })
+}
+
+fn de_i64_or_string_as_i64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+    Ok(match Value::deserialize(deserializer)? {
+        Value::Number(num) => num.as_i64().unwrap(),
         Value::String(s) => s.parse().unwrap(),
         _ => return Err(serde::de::Error::custom("expected a number or a string")),
     })
