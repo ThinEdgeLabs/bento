@@ -10,7 +10,7 @@ use std::vec;
 use crate::chainweb_client::tx_result::PactTransactionResult;
 use crate::chainweb_client::{
     get_block_headers_branches, get_block_payload_batch, get_cut, poll, BlockHeader, BlockPayload,
-    Bounds, ChainId, Command, Hash, Payload, SignedTransaction,
+    Bounds, ChainId, Command, Cut, Hash, Payload, SignedTransaction,
 };
 use crate::models::*;
 use crate::repository::*;
@@ -24,47 +24,7 @@ pub struct Indexer<'a> {
 impl<'a> Indexer<'a> {
     pub async fn run(&self) -> Result<(), Box<dyn Error>> {
         let cut = get_cut().await.unwrap();
-        let mut bounds: Vec<(ChainId, Bounds)> = vec![];
-        cut.hashes.iter().for_each(|(chain, last_block_hash)| {
-            log::info!(
-                "Chain: {}, current height: {}, last block hash: {}",
-                chain.0,
-                last_block_hash.height,
-                last_block_hash.hash
-            );
-            match self
-                .blocks
-                .find_min_max_height_blocks(chain.0 as i64)
-                .unwrap()
-            {
-                (Some(min_block), Some(max_block)) => {
-                    bounds.push((
-                        chain.clone(),
-                        Bounds {
-                            lower: vec![Hash(max_block.hash)],
-                            upper: vec![Hash(last_block_hash.hash.to_string())],
-                        },
-                    ));
-                    if min_block.height > 0 {
-                        bounds.push((
-                            chain.clone(),
-                            Bounds {
-                                lower: vec![],
-                                upper: vec![Hash(min_block.hash)],
-                            },
-                        ));
-                    }
-                }
-                (None, None) => bounds.push((
-                    chain.clone(),
-                    Bounds {
-                        lower: vec![],
-                        upper: vec![Hash(last_block_hash.hash.to_string())],
-                    },
-                )),
-                _ => {}
-            }
-        });
+        let bounds: Vec<(ChainId, Bounds)> = self.get_all_bounds(&cut);
         stream::iter(bounds)
             .map(|(chain, bounds)| async move { self.index_chain(bounds, &chain).await })
             .buffer_unordered(4)
@@ -206,7 +166,56 @@ impl<'a> Indexer<'a> {
                 }
                 Err(e) => log::error!("Error fetching transactions: {:#?}", e),
             }
+            log::info!(
+                "Chain {}, Elapsed time per batch: {:.2?}",
+                chain.0,
+                before.elapsed()
+            );
         }
+    }
+    fn get_all_bounds(&self, cut: &Cut) -> Vec<(ChainId, Bounds)> {
+        let mut bounds: Vec<(ChainId, Bounds)> = vec![];
+        cut.hashes.iter().for_each(|(chain, last_block_hash)| {
+            log::info!(
+                "Chain: {}, current height: {}, last block hash: {}",
+                chain.0,
+                last_block_hash.height,
+                last_block_hash.hash
+            );
+            match self
+                .blocks
+                .find_min_max_height_blocks(chain.0 as i64)
+                .unwrap()
+            {
+                (Some(min_block), Some(max_block)) => {
+                    bounds.push((
+                        chain.clone(),
+                        Bounds {
+                            lower: vec![Hash(max_block.hash)],
+                            upper: vec![Hash(last_block_hash.hash.to_string())],
+                        },
+                    ));
+                    if min_block.height > 0 {
+                        bounds.push((
+                            chain.clone(),
+                            Bounds {
+                                lower: vec![],
+                                upper: vec![Hash(min_block.hash)],
+                            },
+                        ));
+                    }
+                }
+                (None, None) => bounds.push((
+                    chain.clone(),
+                    Bounds {
+                        lower: vec![],
+                        upper: vec![Hash(last_block_hash.hash.to_string())],
+                    },
+                )),
+                _ => {}
+            }
+        });
+        bounds
     }
 }
 
@@ -298,7 +307,7 @@ fn build_transaction(
         },
         metadata: Some(serde_json::to_value(&pact_result.metadata).unwrap()),
         nonce: command.nonce,
-        num_events: Some(pact_result.events.len() as i64),
+        num_events: pact_result.events.as_ref().map(|e| e.len() as i64),
         pact_id: continuation.clone().map(|e| e["pactId"].to_string()),
         proof: proof.flatten(),
         request_key: pact_result.request_key.to_string(),
@@ -318,21 +327,23 @@ fn build_events(
 ) -> Vec<crate::models::Event> {
     let command = serde_json::from_str::<Command>(&signed_tx.cmd).unwrap();
     let mut events = vec![];
-    for (i, event) in pact_result.events.iter().enumerate() {
-        let event = crate::models::Event {
-            block: pact_result.metadata.block_hash.clone(),
-            chain_id: command.meta.chain_id.parse().unwrap(),
-            height: pact_result.metadata.block_height,
-            idx: i as i64,
-            module: event.module.name.clone(),
-            module_hash: "".to_string(), // TODO: Get module hash
-            name: event.name.clone(),
-            params: event.params.clone(),
-            param_text: event.params.to_string(),
-            qual_name: format!("{}.{}", event.module.name, event.name),
-            request_key: pact_result.request_key.to_string(),
-        };
-        events.push(event);
+    if pact_result.events.is_some() {
+        for (i, event) in pact_result.events.as_ref().unwrap().iter().enumerate() {
+            let event = crate::models::Event {
+                block: pact_result.metadata.block_hash.clone(),
+                chain_id: command.meta.chain_id.parse().unwrap(),
+                height: pact_result.metadata.block_height,
+                idx: i as i64,
+                module: event.module.name.clone(),
+                module_hash: "".to_string(), // TODO: Get module hash
+                name: event.name.clone(),
+                params: event.params.clone(),
+                param_text: event.params.to_string(),
+                qual_name: format!("{}.{}", event.module.name, event.name),
+                request_key: pact_result.request_key.to_string(),
+            };
+            events.push(event);
+        }
     }
     events
 }

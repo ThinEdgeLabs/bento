@@ -1,3 +1,4 @@
+use futures::{Stream, TryStreamExt};
 use reqwest::Url;
 use serde::Deserializer;
 use serde::{Deserialize, Serialize};
@@ -242,7 +243,7 @@ pub mod tx_result {
     #[derive(Deserialize, Debug)]
     pub struct PactTransactionResult {
         pub continuation: Option<Value>,
-        pub events: Vec<Event>,
+        pub events: Option<Vec<Event>>,
         pub gas: i64,
         pub logs: String,
         #[serde(rename(deserialize = "metaData"))]
@@ -292,7 +293,7 @@ pub async fn get_block_headers_branches(
 ) -> Result<BlockHeaderResponse, Box<dyn Error>> {
     let endpoint = format!("/chain/{chain}/header/branch");
     let mut url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    url.query_pairs_mut().append_pair("limit", "20");
+    url.query_pairs_mut().append_pair("limit", "50");
     if let Some(next) = next {
         url.query_pairs_mut().append_pair("next", &next);
     }
@@ -345,6 +346,38 @@ pub async fn poll(
         .json()
         .await?;
     Ok(response)
+}
+
+#[allow(dead_code)]
+pub fn headers_stream() -> Result<impl Stream<Item = Result<(), ()>>, eventsource_client::Error> {
+    use eventsource_client as es;
+    use eventsource_client::Client;
+    use std::time::Duration;
+    let endpoint = format!("/header/updates");
+    let url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
+    let client = es::ClientBuilder::for_url(url.as_str())?
+        //.header("Authorization", auth_header)?
+        .reconnect(
+            es::ReconnectOptions::reconnect(true)
+                .retry_initial(false)
+                .delay(Duration::from_secs(1))
+                .backoff_factor(2)
+                .delay_max(Duration::from_secs(60))
+                .build(),
+        )
+        .build();
+    let result = client
+        .stream()
+        .map_ok(|event| match event {
+            es::SSE::Event(ev) => {
+                println!("got an event: {}\n{}", ev.event_type, ev.data)
+            }
+            es::SSE::Comment(comment) => {
+                println!("got a comment: \n{}", comment)
+            }
+        })
+        .map_err(|err| eprintln!("error streaming events: {:?}", err));
+    Ok(result)
 }
 
 #[cfg(test)]
