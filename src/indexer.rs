@@ -82,7 +82,6 @@ impl<'a> Indexer<'a> {
             let headers_response = get_block_headers_branches(&chain, &next_bounds, &None)
                 .await
                 .unwrap();
-            //log::debug!("Received headers: {:#?}", headers_response);
             log::debug!("Elapsed time to get headers: {:.2?}", before.elapsed());
             match headers_response.items[..] {
                 [] => return Ok(()),
@@ -95,10 +94,10 @@ impl<'a> Indexer<'a> {
                         headers_response.items.last().unwrap().height
                     );
                     next_bounds = Bounds {
-                        lower: vec![],
                         upper: vec![Hash(
                             headers_response.items.last().unwrap().hash.to_string(),
                         )],
+                        ..next_bounds
                     };
                 }
             }
