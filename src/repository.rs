@@ -120,13 +120,16 @@ impl<'a> EventsRepository<'a> {
         Ok(new_event)
     }
 
-    pub fn insert_batch(&self, events: &Vec<Event>) -> Result<Vec<Event>, diesel::result::Error> {
+    pub fn insert_batch(&self, events: &Vec<Event>) -> Result<usize, diesel::result::Error> {
         use crate::schema::events::dsl::events as events_table;
+        let mut inserted = 0;
         let mut conn = self.pool.get().unwrap();
-        let inserted = diesel::insert_into(events_table)
-            .values(events)
-            .on_conflict_do_nothing()
-            .get_results(&mut conn)?;
+        for chunk in events.chunks(1000) {
+            inserted += diesel::insert_into(events_table)
+                .values(events)
+                .on_conflict_do_nothing()
+                .execute(&mut conn)?;
+        }
         Ok(inserted)
     }
 
