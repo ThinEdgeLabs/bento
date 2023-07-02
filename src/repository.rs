@@ -72,6 +72,7 @@ impl<'a> BlocksRepository<'a> {
         let mut conn = self.pool.get().unwrap();
         let inserted = diesel::insert_into(blocks_table)
             .values(blocks)
+            .on_conflict_do_nothing()
             .returning(Block::as_returning())
             .get_results(&mut conn)?;
         Ok(inserted)
@@ -124,6 +125,7 @@ impl<'a> EventsRepository<'a> {
         let mut conn = self.pool.get().unwrap();
         let inserted = diesel::insert_into(events_table)
             .values(events)
+            .on_conflict_do_nothing()
             .get_results(&mut conn)?;
         Ok(inserted)
     }
@@ -192,6 +194,7 @@ impl<'a> TransactionsRepository<'a> {
         let mut conn = self.pool.get().unwrap();
         let inserted = diesel::insert_into(transactions_table)
             .values(transactions)
+            .on_conflict_do_nothing()
             .returning(Transaction::as_returning())
             .get_results(&mut conn)?;
         Ok(inserted)

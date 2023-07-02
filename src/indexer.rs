@@ -67,7 +67,7 @@ impl<'a> Indexer<'a> {
         });
         stream::iter(bounds)
             .map(|(chain, bounds)| async move { self.index_chain(bounds, &chain).await })
-            .buffer_unordered(1)
+            .buffer_unordered(4)
             .collect::<Vec<Result<(), Box<dyn Error>>>>()
             .await;
         Ok(())
@@ -88,11 +88,12 @@ impl<'a> Indexer<'a> {
                 [] => return Ok(()),
                 _ => {
                     log::info!(
-                        "Chain {} current height: {}",
+                        "Chain {}: retrieved {} blocks, between heights {} and {}",
                         chain.0,
+                        headers_response.items.len(),
+                        headers_response.items.first().unwrap().height,
                         headers_response.items.last().unwrap().height
                     );
-                    log::info!("Retrieved {} blocks", headers_response.items.len());
                     next_bounds = Bounds {
                         lower: vec![],
                         upper: vec![Hash(
