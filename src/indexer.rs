@@ -102,7 +102,7 @@ impl<'a> Indexer<'a> {
                         ..next_bounds
                     };
                     if next_bounds == previous_bounds {
-                        log::info!("Chain {}: reached bounds limit", chain.0);
+                        log::info!("Chain {}: fetched all blocks within given bounds.", chain.0);
                         return Ok(());
                     }
                 }
