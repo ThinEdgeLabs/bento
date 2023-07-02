@@ -135,7 +135,7 @@ pub struct Meta {
     )]
     pub gas_price: f64,
     pub sender: String,
-    #[serde(deserialize_with = "de_f64_or_u64_as_u64")]
+    #[serde(deserialize_with = "de_f64_or_u64_or_string_as_u64")]
     pub ttl: u64,
 }
 
@@ -162,9 +162,12 @@ fn de_i64_or_string_as_i64<'de, D: Deserializer<'de>>(deserializer: D) -> Result
     })
 }
 
-fn de_f64_or_u64_as_u64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+fn de_f64_or_u64_or_string_as_u64<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
     Ok(match Value::deserialize(deserializer)? {
         Value::Number(num) => num.as_f64().unwrap() as u64,
+        Value::String(s) => s.parse().unwrap(),
         _ => return Err(serde::de::Error::custom("expected a number or a string")),
     })
 }
@@ -472,6 +475,11 @@ mod tests {
         let command = serde_json::from_str::<Command>(json).unwrap();
         assert!(command.payload.exec.is_none());
         assert!(command.payload.cont.is_some());
+
+        let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"code\":\"(namespace \\\"user\\\") (define-keyset \\\"user.z-ks\\\" (read-keyset \\\"ks\\\"))\",\"data\":{\"ks\":{\"keys\":[\"9eb1f99fdc35413c05d58f182d761c38d2b8620b04a5438053ab737099a7f305\"],\"pred\":\"keys-all\"}}}},\"meta\":{\"sender\":\"k:9eb1f99fdc35413c05d58f182d761c38d2b8620b04a5438053ab737099a7f305\",\"chainId\":\"1\",\"gasPrice\":\"0.00000001\",\"gasLimit\":\"100000\",\"ttl\":\"600\",\"creationTime\":1683614361},\"signers\":[{\"pubKey\":\"9eb1f99fdc35413c05d58f182d761c38d2b8620b04a5438053ab737099a7f305\",\"clist\":[]},{\"pubKey\":\"9eb1f99fdc35413c05d58f182d761c38d2b8620b04a5438053ab737099a7f305\",\"clist\":[{\"name\":\"coin.GAS\",\"args\":[]}]}],\"nonce\":\"1683614361\"}";
+        let command = serde_json::from_str::<Command>(json).unwrap();
+        assert!(command.payload.exec.is_some());
+        assert!(command.payload.cont.is_none());
     }
 
     #[test]
