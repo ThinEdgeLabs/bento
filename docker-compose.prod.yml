@@ -5,6 +5,10 @@ services:
   db:
     environment:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - /mnt/volume_nyc1_02/data:/var/lib/postgresql/data/pgdata
+
 
   bento:
     build: .
