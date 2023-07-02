@@ -190,7 +190,7 @@ pub struct ContPayload {
     pub data: Value,
     #[serde(rename(deserialize = "pactId"))]
     pub pact_id: String,
-    pub proof: String,
+    pub proof: Option<String>,
     pub rollback: bool,
     pub step: u32,
 }
@@ -358,7 +358,7 @@ mod tests {
         let cont = ContPayload {
             data: serde_json::json!({}),
             pact_id: "AoKZVe35EWK-2a-kj_tD6vC8Ifdt1mdQyK0_2Rm_Jto".to_string(),
-            proof: "proof".to_string(),
+            proof: Some("proof".to_string()),
             rollback: false,
             step: 1,
         };
