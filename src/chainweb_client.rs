@@ -17,7 +17,7 @@ struct BlockHeaderBranchResponse {
     limit: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Bounds {
     pub lower: Vec<Hash>,
     pub upper: Vec<Hash>,
@@ -38,7 +38,7 @@ impl Display for ChainId {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Hash(pub String);
 
 #[derive(Deserialize, Debug)]

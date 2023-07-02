@@ -93,12 +93,18 @@ impl<'a> Indexer<'a> {
                         headers_response.items.first().unwrap().height,
                         headers_response.items.last().unwrap().height
                     );
+
+                    let previous_bounds = next_bounds.clone();
                     next_bounds = Bounds {
                         upper: vec![Hash(
                             headers_response.items.last().unwrap().hash.to_string(),
                         )],
                         ..next_bounds
                     };
+                    if next_bounds == previous_bounds {
+                        log::info!("Chain {}: reached bounds limit", chain.0);
+                        return Ok(());
+                    }
                 }
             }
 
