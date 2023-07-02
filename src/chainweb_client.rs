@@ -131,7 +131,8 @@ pub struct Meta {
     )]
     pub gas_price: f64,
     pub sender: String,
-    pub ttl: u32,
+    #[serde(deserialize_with = "de_f64_or_u64_as_u64")]
+    pub ttl: u64,
 }
 
 fn de_f64_or_u64_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
@@ -145,6 +146,13 @@ fn de_f64_or_string_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result
     Ok(match Value::deserialize(deserializer)? {
         Value::Number(num) => num.as_f64().unwrap(),
         Value::String(s) => s.parse().unwrap(),
+        _ => return Err(serde::de::Error::custom("expected a number or a string")),
+    })
+}
+
+fn de_f64_or_u64_as_u64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    Ok(match Value::deserialize(deserializer)? {
+        Value::Number(num) => num.as_f64().unwrap() as u64,
         _ => return Err(serde::de::Error::custom("expected a number or a string")),
     })
 }
@@ -376,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_parsing_exec_command_json() {
-        let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"keyset\":{\"pred\":\"keys-all\",\"keys\":[\"48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173\"]}},\"code\":\"(free.radio02.direct-to-send \\\"k:1625709839e6c607385cc6b71191ae033217da29fe4bcaf8131575ba31f6d58e\\\" )\"}},\"signers\":[{\"pubKey\":\"48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173\"}],\"meta\":{\"creationTime\":1687938640,\"ttl\":28800,\"gasLimit\":1000,\"chainId\":\"0\",\"gasPrice\":0.000001,\"sender\":\"k:48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173\"},\"nonce\":\"\\\"2023-06-28T07:50:55.438Z\\\"\"}";
+        let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"keyset\":{\"pred\":\"keys-all\",\"keys\":[\"48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173\"]}},\"code\":\"(free.radio02.direct-to-send \\\"k:1625709839e6c607385cc6b71191ae033217da29fe4bcaf8131575ba31f6d58e\\\" )\"}},\"signers\":[{\"pubKey\":\"48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173\"}],\"meta\":{\"creationTime\":1687938640,\"ttl\":28800.0,\"gasLimit\":1000,\"chainId\":\"0\",\"gasPrice\":0.000001,\"sender\":\"k:48484c674e734ba4deef7289b47c14d0743e914e2fc0863b9859ac0ec2715173\"},\"nonce\":\"\\\"2023-06-28T07:50:55.438Z\\\"\"}";
         let exec = ExecPayload {
             code: String::from("(free.radio02.direct-to-send \"k:1625709839e6c607385cc6b71191ae033217da29fe4bcaf8131575ba31f6d58e\" )"),
             data: serde_json::json!({
