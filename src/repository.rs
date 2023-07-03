@@ -124,7 +124,7 @@ impl<'a> EventsRepository<'a> {
         use crate::schema::events::dsl::events as events_table;
         let mut inserted = 0;
         let mut conn = self.pool.get().unwrap();
-        for chunk in events.chunks(1000) {
+        for chunk in events.chunks(500) {
             inserted += diesel::insert_into(events_table)
                 .values(events)
                 .on_conflict_do_nothing()
