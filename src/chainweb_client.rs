@@ -75,6 +75,16 @@ pub struct BlockHeader {
     pub nonce: String,
 }
 
+#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+pub struct BlockHeaderEvent {
+    #[serde(rename(deserialize = "txCount"))]
+    tx_count: u32,
+    #[serde(rename(deserialize = "powHash"))]
+    pow_hash: String,
+    header: BlockHeader,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct BlockHeaderResponse {
     pub items: Vec<BlockHeader>,
@@ -122,7 +132,7 @@ pub struct Meta {
     pub chain_id: String,
     #[serde(
         rename(deserialize = "creationTime",),
-        deserialize_with = "de_f64_or_u64_as_f64"
+        deserialize_with = "de_f64_or_string_as_f64"
     )]
     pub creation_time: f64,
     #[serde(
@@ -140,6 +150,7 @@ pub struct Meta {
     pub ttl: u64,
 }
 
+#[allow(dead_code)]
 fn de_f64_or_u64_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
     Ok(match Value::deserialize(deserializer)? {
         Value::Number(num) => num.as_f64().unwrap(),
@@ -371,7 +382,6 @@ pub fn headers_stream() -> Result<impl Stream<Item = Result<(), ()>>, eventsourc
 
     let endpoint = format!("/header/updates");
     let url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    log::info!("connecting to {}", url.as_str());
     let client = es::ClientBuilder::for_url(url.as_str())?
         .reconnect(
             es::ReconnectOptions::reconnect(true)
@@ -386,10 +396,15 @@ pub fn headers_stream() -> Result<impl Stream<Item = Result<(), ()>>, eventsourc
         .stream()
         .map_ok(|event| match event {
             es::SSE::Event(ev) => {
-                println!("got an event: {}\n{}", ev.event_type, ev.data)
+                println!("got an event: {}\n{}", ev.event_type, ev.data);
+                if ev.event_type == "BlockHeader" {
+                    let block_header_event: BlockHeaderEvent =
+                        serde_json::from_str(&ev.data).unwrap();
+                    println!("block header: {:?}", block_header_event);
+                }
             }
             es::SSE::Comment(comment) => {
-                println!("got a comment: \n{}", comment)
+                log::info!("Received comment: \n{}", comment)
             }
         })
         .map_err(|err| eprintln!("error streaming events: {:?}", err));
@@ -482,6 +497,10 @@ mod tests {
         let command = serde_json::from_str::<Command>(json).unwrap();
         assert!(command.payload.exec.is_some());
         assert!(command.payload.cont.is_none());
+
+        let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"account-keyset\":{\"keys\":[\"719884d6557f4d70ea08353b0048fb0298ae0c06c0badf806dc7dcb7a0d7129f\"],\"pred\":\"keys-all\"}},\"code\":\"(coin.transfer-create  \\\"k:6ca5f920b7562a579194b2bd9d1870510bbe03eada5cabe07fc62d7ce2d52e57\\\" \\\"k:719884d6557f4d70ea08353b0048fb0298ae0c06c0badf806dc7dcb7a0d7129f\\\" (read-keyset \\\"account-keyset\\\") 0.001)\"}},\"signers\":[{\"clist\":[{\"name\":\"coin.GAS\",\"args\":[]},{\"name\":\"coin.TRANSFER\",\"args\":[\"k:6ca5f920b7562a579194b2bd9d1870510bbe03eada5cabe07fc62d7ce2d52e57\",\"k:719884d6557f4d70ea08353b0048fb0298ae0c06c0badf806dc7dcb7a0d7129f\",{\"decimal\":\"0.001\"}]}],\"pubKey\":\"6ca5f920b7562a579194b2bd9d1870510bbe03eada5cabe07fc62d7ce2d52e57\"}],\"meta\":{\"creationTime\":\"1658372915\",\"ttl\":28800,\"gasLimit\":600,\"chainId\":\"2\",\"gasPrice\":0.00001,\"sender\":\"k:6ca5f920b7562a579194b2bd9d1870510bbe03eada5cabe07fc62d7ce2d52e57\"},\"nonce\":\"\\\"2022-07-21T03:08:35.479Z\\\"\"}";
+        let command = serde_json::from_str::<Command>(json).unwrap();
+        assert!(command.payload.exec.is_some());
     }
 
     #[test]
@@ -491,5 +510,3 @@ mod tests {
         assert!(command.meta.gas_price == 0.00000001);
     }
 }
-
-//"{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"user-ks\":{\"pred\":\"keys-all\",\"keys\":[\"4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\"]},\"account\":\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\"},\"code\":\"(coin.transfer-crosschain \\\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\\\" \\\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\\\" (read-keyset \\\"user-ks\\\") \\\"8\\\" 0.000355000000)\"}},\"signers\":[{\"clist\":[{\"name\":\"coin.TRANSFER_XCHAIN\",\"args\":[\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\",\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\",0.000355,\"8\"]}],\"pubKey\":\"4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\"}],\"meta\":{\"creationTime\":1688045415.29,\"ttl\":1200,\"gasLimit\":1100,\"chainId\":\"3\",\"gasPrice\":2e-8,\"sender\":\"746d0601603d1cc907ae82fed1c4bdf3\"},\"nonce\":\"\\\"1688045415.292\\\"\"}"
