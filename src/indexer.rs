@@ -26,14 +26,22 @@ impl<'a> Indexer<'a> {
         let cut = get_cut().await.unwrap();
         let bounds: Vec<(ChainId, Bounds)> = self.get_all_bounds(&cut);
         stream::iter(bounds)
-            .map(|(chain, bounds)| async move { self.index_chain(bounds, &chain).await })
+            .map(
+                |(chain, bounds)| async move { self.index_chain(bounds, &chain, None, None).await },
+            )
             .buffer_unordered(4)
             .collect::<Vec<Result<(), Box<dyn Error>>>>()
             .await;
         Ok(())
     }
 
-    async fn index_chain(&self, bounds: Bounds, chain: &ChainId) -> Result<(), Box<dyn Error>> {
+    pub async fn index_chain(
+        &self,
+        bounds: Bounds,
+        chain: &ChainId,
+        min_height: Option<i64>,
+        max_height: Option<i64>,
+    ) -> Result<(), Box<dyn Error>> {
         log::info!("Syncing chain: {}, bounds: {:?}", chain.0, bounds,);
         use std::time::Instant;
         let mut next_bounds = bounds;
@@ -250,7 +258,7 @@ fn build_block(header: &BlockHeader, block_payload: &BlockPayload) -> Block {
             .unwrap(),
         creation_time: NaiveDateTime::from_timestamp_micros(header.creation_time).unwrap(),
         epoch: NaiveDateTime::from_timestamp_micros(header.epoch_start).unwrap(),
-        flags: BigDecimal::from(header.feature_flags),
+        flags: header.feature_flags.clone(),
         miner: miner_data["account"].to_string(),
         nonce: BigDecimal::from_str(&header.nonce).unwrap(),
         payload: block_payload.payload_hash.clone(),
