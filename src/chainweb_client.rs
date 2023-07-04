@@ -1,5 +1,6 @@
 use bigdecimal::BigDecimal;
-use futures::{Stream, TryStreamExt};
+use eventsource_client::SSE;
+use futures::Stream;
 use reqwest::Url;
 use serde::Deserializer;
 use serde::{Deserialize, Serialize};
@@ -79,10 +80,10 @@ pub struct BlockHeader {
 #[derive(Deserialize, Debug)]
 pub struct BlockHeaderEvent {
     #[serde(rename(deserialize = "txCount"))]
-    tx_count: u32,
+    pub tx_count: u32,
     #[serde(rename(deserialize = "powHash"))]
-    pow_hash: String,
-    header: BlockHeader,
+    pub pow_hash: String,
+    pub header: BlockHeader,
 }
 
 #[derive(Deserialize, Debug)]
@@ -375,7 +376,8 @@ pub async fn poll(
 }
 
 #[allow(dead_code)]
-pub fn headers_stream() -> Result<impl Stream<Item = Result<(), ()>>, eventsource_client::Error> {
+pub fn start_headers_stream(
+) -> Result<impl Stream<Item = Result<SSE, eventsource_client::Error>>, eventsource_client::Error> {
     use eventsource_client as es;
     use eventsource_client::Client;
     use std::time::Duration;
@@ -392,23 +394,8 @@ pub fn headers_stream() -> Result<impl Stream<Item = Result<(), ()>>, eventsourc
                 .build(),
         )
         .build();
-    let result = client
-        .stream()
-        .map_ok(|event| match event {
-            es::SSE::Event(ev) => {
-                println!("got an event: {}\n{}", ev.event_type, ev.data);
-                if ev.event_type == "BlockHeader" {
-                    let block_header_event: BlockHeaderEvent =
-                        serde_json::from_str(&ev.data).unwrap();
-                    println!("block header: {:?}", block_header_event);
-                }
-            }
-            es::SSE::Comment(comment) => {
-                log::info!("Received comment: \n{}", comment)
-            }
-        })
-        .map_err(|err| eprintln!("error streaming events: {:?}", err));
-    Ok(result)
+
+    Ok(client.stream())
 }
 
 #[cfg(test)]
