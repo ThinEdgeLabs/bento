@@ -5,15 +5,17 @@ use futures::StreamExt;
 use serde_json::Value;
 use std::error::Error;
 use std::str::FromStr;
+use std::time::Instant;
 use std::vec;
 
-use crate::chainweb_client::tx_result::PactTransactionResult;
-use crate::chainweb_client::{
+use super::chainweb_client::start_headers_stream;
+use super::chainweb_client::tx_result::PactTransactionResult;
+use super::chainweb_client::{
     get_block_headers_branches, get_block_payload_batch, get_cut, poll, BlockHeader, BlockPayload,
     Bounds, ChainId, Command, Cut, Hash, Payload, SignedTransaction,
 };
-use crate::models::*;
-use crate::repository::*;
+use super::models::*;
+use super::repository::*;
 
 pub struct Indexer<'a> {
     pub blocks: &'a BlocksRepository<'a>,
@@ -26,24 +28,15 @@ impl<'a> Indexer<'a> {
         let cut = get_cut().await.unwrap();
         let bounds: Vec<(ChainId, Bounds)> = self.get_all_bounds(&cut);
         stream::iter(bounds)
-            .map(
-                |(chain, bounds)| async move { self.index_chain(bounds, &chain, None, None).await },
-            )
+            .map(|(chain, bounds)| async move { self.index_chain(bounds, &chain).await })
             .buffer_unordered(4)
             .collect::<Vec<Result<(), Box<dyn Error>>>>()
             .await;
         Ok(())
     }
 
-    pub async fn index_chain(
-        &self,
-        bounds: Bounds,
-        chain: &ChainId,
-        min_height: Option<i64>,
-        max_height: Option<i64>,
-    ) -> Result<(), Box<dyn Error>> {
+    pub async fn index_chain(&self, bounds: Bounds, chain: &ChainId) -> Result<(), Box<dyn Error>> {
         log::info!("Syncing chain: {}, bounds: {:?}", chain.0, bounds,);
-        use std::time::Instant;
         let mut next_bounds = bounds;
         loop {
             let before = Instant::now();
@@ -75,105 +68,7 @@ impl<'a> Indexer<'a> {
                     }
                 }
             }
-
-            let before_payloads = Instant::now();
-            let payloads = get_block_payload_batch(
-                &chain,
-                headers_response
-                    .items
-                    .iter()
-                    .map(|e| e.payload_hash.as_str())
-                    .collect::<Vec<&str>>(),
-            )
-            .await
-            .unwrap();
-            log::debug!(
-                "Elapsed time to get payloads: {:.2?}",
-                before_payloads.elapsed()
-            );
-
-            //log::debug!("Received blocks payloads: {:#?}", payloads);
-            let headers_by_payload_hash = headers_response
-                .items
-                .iter()
-                .map(|e| (e.payload_hash.clone(), e))
-                .collect::<std::collections::HashMap<String, &BlockHeader>>();
-            let payloads_by_hash = payloads
-                .iter()
-                .map(|e| (e.payload_hash.clone(), e))
-                .collect::<std::collections::HashMap<String, &BlockPayload>>();
-
-            match self.blocks.insert_batch(
-                &headers_by_payload_hash
-                    .into_iter()
-                    .map(|(payload_hash, header)| {
-                        build_block(&header, &payloads_by_hash.get(&payload_hash).unwrap())
-                    })
-                    .collect::<Vec<Block>>(),
-            ) {
-                Ok(_) => {}
-                Err(e) => panic!("Error inserting blocks: {:#?}", e),
-            }
-
-            let signed_txs = get_signed_txs_from_payloads(&payloads);
-            let signed_txs_by_hash = signed_txs
-                .iter()
-                .map(|e| (e.hash.to_string(), e))
-                .collect::<std::collections::HashMap<String, &SignedTransaction>>(
-            );
-            log::debug!("Fetching {} transactions", signed_txs.len());
-            let before_transactions = Instant::now();
-            let results = fetch_transactions_results(
-                &signed_txs_by_hash.keys().map(|e| e.to_string()).collect(),
-                chain,
-            )
-            .await;
-            log::debug!(
-                "Elapsed time to fetch transactions: {:.2?}",
-                before_transactions.elapsed()
-            );
-
-            match results {
-                Ok(results) => {
-                    log::debug!("Received {} transactions", results.len());
-                    let before_txs = Instant::now();
-                    let txs: Vec<Transaction> = results
-                        .iter()
-                        .map(|pact_result| {
-                            let signed_tx =
-                                signed_txs_by_hash.get(&pact_result.request_key).unwrap();
-                            build_transaction(&signed_tx, &pact_result, &chain)
-                        })
-                        .collect();
-                    match self.transactions.insert_batch(&txs) {
-                        Ok(_) => {}
-                        Err(e) => panic!("Error inserting transactions: {:#?}", e),
-                    }
-                    log::debug!(
-                        "Elapsed time to insert transactions: {:.2?}",
-                        before_txs.elapsed()
-                    );
-                    let before_events = Instant::now();
-                    let events: Vec<Event> = results
-                        .iter()
-                        .map(|pact_result| {
-                            let signed_tx =
-                                signed_txs_by_hash.get(&pact_result.request_key).unwrap();
-                            build_events(&signed_tx, &pact_result)
-                        })
-                        .flatten()
-                        .collect();
-                    match self.events.insert_batch(&events) {
-                        Ok(_) => {}
-                        Err(e) => panic!("Error inserting events: {:#?}", e),
-                    }
-                    log::debug!(
-                        "Elapsed time to insert events: {:.2?}",
-                        before_events.elapsed()
-                    );
-                }
-                Err(e) => log::error!("Error fetching transactions: {:#?}", e),
-            }
+            self.process_headers(headers_response.items, chain).await?;
             log::info!(
                 "Chain {}, Elapsed time per batch: {:.2?}",
                 chain.0,
@@ -224,6 +119,152 @@ impl<'a> Indexer<'a> {
             }
         });
         bounds
+    }
+
+    async fn process_headers(
+        &self,
+        headers: Vec<BlockHeader>,
+        chain: &ChainId,
+    ) -> Result<(), Box<dyn Error>> {
+        let before_payloads = Instant::now();
+        let payloads = get_block_payload_batch(
+            &chain,
+            headers
+                .iter()
+                .map(|e| e.payload_hash.as_str())
+                .collect::<Vec<&str>>(),
+        )
+        .await
+        .unwrap();
+        log::debug!(
+            "Elapsed time to get payloads: {:.2?}",
+            before_payloads.elapsed()
+        );
+
+        //log::debug!("Received blocks payloads: {:#?}", payloads);
+        let headers_by_payload_hash = headers
+            .iter()
+            .map(|e| (e.payload_hash.clone(), e))
+            .collect::<std::collections::HashMap<String, &BlockHeader>>();
+        let payloads_by_hash = payloads
+            .iter()
+            .map(|e| (e.payload_hash.clone(), e))
+            .collect::<std::collections::HashMap<String, &BlockPayload>>();
+
+        match self.blocks.insert_batch(
+            &headers_by_payload_hash
+                .into_iter()
+                .map(|(payload_hash, header)| {
+                    build_block(&header, &payloads_by_hash.get(&payload_hash).unwrap())
+                })
+                .collect::<Vec<Block>>(),
+        ) {
+            Ok(_) => {}
+            Err(e) => panic!("Error inserting blocks: {:#?}", e),
+        }
+
+        let signed_txs = get_signed_txs_from_payloads(&payloads);
+        let signed_txs_by_hash = signed_txs
+            .iter()
+            .map(|e| (e.hash.to_string(), e))
+            .collect::<std::collections::HashMap<String, &SignedTransaction>>(
+        );
+        log::debug!("Fetching {} transactions", signed_txs.len());
+        let before_transactions = Instant::now();
+        let results = fetch_transactions_results(
+            &signed_txs_by_hash.keys().map(|e| e.to_string()).collect(),
+            chain,
+        )
+        .await;
+        log::debug!(
+            "Elapsed time to fetch transactions: {:.2?}",
+            before_transactions.elapsed()
+        );
+
+        match results {
+            Ok(results) => {
+                log::debug!("Received {} transactions", results.len());
+                let before_txs = Instant::now();
+                let txs: Vec<Transaction> = results
+                    .iter()
+                    .map(|pact_result| {
+                        let signed_tx = signed_txs_by_hash.get(&pact_result.request_key).unwrap();
+                        build_transaction(&signed_tx, &pact_result, &chain)
+                    })
+                    .collect();
+                match self.transactions.insert_batch(&txs) {
+                    Ok(_) => {}
+                    Err(e) => panic!("Error inserting transactions: {:#?}", e),
+                }
+                log::debug!(
+                    "Elapsed time to insert transactions: {:.2?}",
+                    before_txs.elapsed()
+                );
+                let before_events = Instant::now();
+                let events: Vec<Event> = results
+                    .iter()
+                    .map(|pact_result| {
+                        let signed_tx = signed_txs_by_hash.get(&pact_result.request_key).unwrap();
+                        build_events(&signed_tx, &pact_result)
+                    })
+                    .flatten()
+                    .collect();
+                match self.events.insert_batch(&events) {
+                    Ok(_) => {}
+                    Err(e) => panic!("Error inserting events: {:#?}", e),
+                }
+                log::debug!(
+                    "Elapsed time to insert events: {:.2?}",
+                    before_events.elapsed()
+                );
+            }
+            Err(e) => log::error!("Error fetching transactions: {:#?}", e),
+        }
+        Ok(())
+    }
+
+    pub async fn listen_headers_stream(&self) -> Result<(), Box<dyn Error>> {
+        use crate::chainweb_client::BlockHeaderEvent;
+        use eventsource_client as es;
+        use futures::stream::TryStreamExt;
+
+        match start_headers_stream() {
+            Ok(stream) => {
+                log::info!("Stream started");
+                match stream
+                    .try_for_each_concurrent(4, |event| async move {
+                        match event {
+                            es::SSE::Event(ev) => {
+                                log::info!("Event: {:?}", ev);
+                                if ev.event_type == "BlockHeader" {
+                                    let block_header_event: BlockHeaderEvent =
+                                        serde_json::from_str(&ev.data).unwrap();
+                                    let chain_id = block_header_event.header.chain_id.clone();
+                                    self.process_headers(
+                                        vec![block_header_event.header],
+                                        &chain_id,
+                                    )
+                                    .await;
+                                }
+                            }
+                            _ => {}
+                        }
+                        Ok(())
+                    })
+                    .await
+                {
+                    Ok(_) => {
+                        log::info!("Headers stream ended");
+                        Ok(())
+                    }
+                    Err(_) => Err("Stream error".into()),
+                }
+            }
+            Err(e) => {
+                log::error!("Stream error: {:?}", e);
+                Err("Error".into())
+            }
+        }
     }
 }
 
