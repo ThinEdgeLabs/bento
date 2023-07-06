@@ -10,9 +10,19 @@ services:
       - /mnt/volume_nyc1_02/data:/var/lib/postgresql/data/pgdata
 
 
-  bento:
+  indexer:
     build: .
     restart: no
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/bento"
+      RUST_LOG: info
+
+  api:
+    build: .
+    command: "./target/release/api"
+    restart: always
     depends_on:
       - db
     environment:
