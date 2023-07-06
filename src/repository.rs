@@ -2,11 +2,12 @@ use super::db::DbPool;
 use super::models::*;
 use diesel::prelude::*;
 
-pub struct BlocksRepository<'a> {
-    pub pool: &'a DbPool,
+#[derive(Clone)]
+pub struct BlocksRepository {
+    pub pool: DbPool,
 }
 
-impl<'a> BlocksRepository<'a> {
+impl BlocksRepository {
     #[allow(dead_code)]
     pub fn find_all(&self) -> Result<Vec<Block>, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
@@ -96,11 +97,12 @@ impl<'a> BlocksRepository<'a> {
     }
 }
 
-pub struct EventsRepository<'a> {
-    pub pool: &'a DbPool,
+#[derive(Clone)]
+pub struct EventsRepository {
+    pub pool: DbPool,
 }
 
-impl<'a> EventsRepository<'a> {
+impl EventsRepository {
     #[allow(dead_code)]
     pub fn find_all(&self) -> Result<Vec<Event>, diesel::result::Error> {
         use crate::schema::events::dsl::*;
@@ -163,11 +165,12 @@ impl<'a> EventsRepository<'a> {
     }
 }
 
-pub struct TransactionsRepository<'a> {
-    pub pool: &'a DbPool,
+#[derive(Clone)]
+pub struct TransactionsRepository {
+    pub pool: DbPool,
 }
 
-impl<'a> TransactionsRepository<'a> {
+impl TransactionsRepository {
     #[allow(dead_code)]
     pub fn find_all(&self) -> Result<Vec<Transaction>, diesel::result::Error> {
         use crate::schema::transactions::dsl::*;
@@ -176,6 +179,55 @@ impl<'a> TransactionsRepository<'a> {
             .select(Transaction::as_select())
             .load::<Transaction>(&mut conn)?;
         Ok(results)
+    }
+
+    #[allow(dead_code)]
+    pub fn find_by_request_key(
+        &self,
+        request_key: &str,
+    ) -> Result<Option<Transaction>, diesel::result::Error> {
+        use crate::schema::transactions::dsl::{
+            request_key as request_key_column, transactions as transactions_table,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let result = transactions_table
+            .filter(request_key_column.eq(request_key))
+            //.filter(chain_id_column.eq(chain_id))
+            .select(Transaction::as_select())
+            .first::<Transaction>(&mut conn)
+            .optional()?;
+        Ok(result)
+    }
+
+    #[allow(dead_code)]
+    pub fn find_all_related(
+        &self,
+        request_key: &str,
+    ) -> Result<Vec<Transaction>, diesel::result::Error> {
+        match self.find_by_request_key(request_key) {
+            Ok(Some(transaction)) => match transaction.pact_id {
+                Some(ref pact_id) => self.find_by_pact_id(pact_id),
+                None => Ok(vec![transaction]),
+            },
+            Ok(None) => Ok(vec![]),
+            Err(err) => Err(err),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn find_by_pact_id(
+        &self,
+        pact_id: &str,
+    ) -> Result<Vec<Transaction>, diesel::result::Error> {
+        use crate::schema::transactions::dsl::{
+            pact_id as pact_id_column, transactions as transactions_table,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let result = transactions_table
+            .filter(pact_id_column.eq(pact_id))
+            .select(Transaction::as_select())
+            .load::<Transaction>(&mut conn)?;
+        Ok(result)
     }
 
     #[allow(dead_code)]

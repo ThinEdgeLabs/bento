@@ -17,13 +17,13 @@ use super::chainweb_client::{
 use super::models::*;
 use super::repository::*;
 
-pub struct Indexer<'a> {
-    pub blocks: &'a BlocksRepository<'a>,
-    pub events: &'a EventsRepository<'a>,
-    pub transactions: &'a TransactionsRepository<'a>,
+pub struct Indexer {
+    pub blocks: BlocksRepository,
+    pub events: EventsRepository,
+    pub transactions: TransactionsRepository,
 }
 
-impl<'a> Indexer<'a> {
+impl Indexer {
     pub async fn run(&self) -> Result<(), Box<dyn Error>> {
         let cut = get_cut().await.unwrap();
         let bounds: Vec<(ChainId, Bounds)> = self.get_all_bounds(&cut);

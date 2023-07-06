@@ -1,6 +1,7 @@
 use bigdecimal::BigDecimal;
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
+use serde::Serialize;
 
 #[derive(Queryable, Selectable, Insertable, Debug)]
 #[diesel(table_name = crate::schema::blocks)]
@@ -42,6 +43,7 @@ pub struct Event {
 #[derive(Queryable, Selectable, Insertable, Debug)]
 #[diesel(table_name = crate::schema::transactions)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
+#[derive(Serialize)]
 pub struct Transaction {
     pub bad_result: Option<serde_json::Value>,
     pub block: String,
