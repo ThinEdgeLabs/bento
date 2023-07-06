@@ -122,7 +122,7 @@ impl EventsRepository {
         Ok(new_event)
     }
 
-    pub fn insert_batch(&self, events: &Vec<Event>) -> Result<usize, diesel::result::Error> {
+    pub fn insert_batch(&self, events: &[Event]) -> Result<usize, diesel::result::Error> {
         use crate::schema::events::dsl::events as events_table;
         let mut inserted = 0;
         let mut conn = self.pool.get().unwrap();
@@ -243,7 +243,7 @@ impl TransactionsRepository {
 
     pub fn insert_batch(
         &self,
-        transactions: &Vec<Transaction>,
+        transactions: &[Transaction],
     ) -> Result<usize, diesel::result::Error> {
         use crate::schema::transactions::dsl::transactions as transactions_table;
         let mut conn = self.pool.get().unwrap();

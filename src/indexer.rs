@@ -40,7 +40,7 @@ impl Indexer {
         let mut next_bounds = bounds;
         loop {
             let before = Instant::now();
-            let headers_response = get_block_headers_branches(&chain, &next_bounds, &None)
+            let headers_response = get_block_headers_branches(chain, &next_bounds, &None)
                 .await
                 .unwrap();
             log::debug!("Elapsed time to get headers: {:.2?}", before.elapsed());
@@ -128,7 +128,7 @@ impl Indexer {
     ) -> Result<(), Box<dyn Error>> {
         let before_payloads = Instant::now();
         let payloads = get_block_payload_batch(
-            &chain,
+            chain,
             headers
                 .iter()
                 .map(|e| e.payload_hash.as_str())
@@ -155,7 +155,7 @@ impl Indexer {
             &headers_by_payload_hash
                 .into_iter()
                 .map(|(payload_hash, header)| {
-                    build_block(&header, &payloads_by_hash.get(&payload_hash).unwrap())
+                    build_block(header, payloads_by_hash.get(&payload_hash).unwrap())
                 })
                 .collect::<Vec<Block>>(),
         ) {
@@ -171,11 +171,8 @@ impl Indexer {
         );
         log::debug!("Fetching {} transactions", signed_txs.len());
         let before_transactions = Instant::now();
-        let results = fetch_transactions_results(
-            &signed_txs_by_hash.keys().map(|e| e.to_string()).collect(),
-            chain,
-        )
-        .await;
+        let request_keys: Vec<String> = signed_txs_by_hash.keys().map(|e| e.to_string()).collect();
+        let results = fetch_transactions_results(&request_keys[..], chain).await;
         log::debug!(
             "Elapsed time to fetch transactions: {:.2?}",
             before_transactions.elapsed()
@@ -189,7 +186,7 @@ impl Indexer {
                     .iter()
                     .map(|pact_result| {
                         let signed_tx = signed_txs_by_hash.get(&pact_result.request_key).unwrap();
-                        build_transaction(&signed_tx, &pact_result, &chain)
+                        build_transaction(signed_tx, pact_result, chain)
                     })
                     .collect();
                 match self.transactions.insert_batch(&txs) {
@@ -203,11 +200,10 @@ impl Indexer {
                 let before_events = Instant::now();
                 let events: Vec<Event> = results
                     .iter()
-                    .map(|pact_result| {
+                    .flat_map(|pact_result| {
                         let signed_tx = signed_txs_by_hash.get(&pact_result.request_key).unwrap();
-                        build_events(&signed_tx, &pact_result)
+                        build_events(signed_tx, pact_result)
                     })
-                    .flatten()
                     .collect();
                 match self.events.insert_batch(&events) {
                     Ok(_) => {}
@@ -233,21 +229,20 @@ impl Indexer {
                 log::info!("Stream started");
                 match stream
                     .try_for_each_concurrent(4, |event| async move {
-                        match event {
-                            es::SSE::Event(ev) => {
-                                log::info!("Event: {:?}", ev);
-                                if ev.event_type == "BlockHeader" {
-                                    let block_header_event: BlockHeaderEvent =
-                                        serde_json::from_str(&ev.data).unwrap();
-                                    let chain_id = block_header_event.header.chain_id.clone();
-                                    self.process_headers(
-                                        vec![block_header_event.header],
-                                        &chain_id,
-                                    )
-                                    .await;
+                        if let es::SSE::Event(ev) = event {
+                            log::info!("Event: {:?}", ev);
+                            if ev.event_type == "BlockHeader" {
+                                let block_header_event: BlockHeaderEvent =
+                                    serde_json::from_str(&ev.data).unwrap();
+                                let chain_id = block_header_event.header.chain_id.clone();
+                                match self
+                                    .process_headers(vec![block_header_event.header], &chain_id)
+                                    .await
+                                {
+                                    Ok(_) => {}
+                                    Err(e) => log::error!("Error processing headers: {:#?}", e),
                                 }
                             }
-                            _ => {}
                         }
                         Ok(())
                     })
@@ -268,7 +263,7 @@ impl Indexer {
     }
 }
 
-fn get_signed_txs_from_payloads(payloads: &Vec<BlockPayload>) -> Vec<SignedTransaction> {
+fn get_signed_txs_from_payloads(payloads: &[BlockPayload]) -> Vec<SignedTransaction> {
     payloads
         .iter()
         .map(|e| {
@@ -294,9 +289,7 @@ fn build_block(header: &BlockHeader, block_payload: &BlockPayload) -> Block {
         hash: header.hash.clone(),
         height: header.height as i64,
         parent: header.parent.clone(),
-        weight: BigDecimal::from_str(&header.weight)
-            .or::<bigdecimal::ParseBigDecimalError>(Ok(BigDecimal::from(0)))
-            .unwrap(),
+        weight: BigDecimal::from_str(&header.weight).unwrap_or(BigDecimal::from(0)),
         creation_time: NaiveDateTime::from_timestamp_micros(header.creation_time).unwrap(),
         epoch: NaiveDateTime::from_timestamp_micros(header.epoch_start).unwrap(),
         flags: header.feature_flags.clone(),
@@ -342,12 +335,12 @@ fn build_transaction(
         chain_id: chain.0 as i64,
         creation_time: NaiveDateTime::from_timestamp_micros(pact_result.metadata.block_time)
             .unwrap(),
-        code: code,
-        data: data,
+        code,
+        data,
         continuation: pact_result.continuation.clone(),
         gas: pact_result.gas,
-        gas_price: command.meta.gas_price as f64,
-        gas_limit: command.meta.gas_limit as i64,
+        gas_price: command.meta.gas_price,
+        gas_limit: command.meta.gas_limit,
         good_result: pact_result.result.data.clone(),
         height: pact_result.metadata.block_height,
         logs: if pact_result.logs.is_empty() {
@@ -399,7 +392,7 @@ fn build_events(
 }
 
 pub async fn fetch_transactions_results(
-    request_keys: &Vec<String>,
+    request_keys: &[String],
     chain: &ChainId,
 ) -> Result<Vec<PactTransactionResult>, Box<dyn Error>> {
     let transactions_per_request = 10;
@@ -409,7 +402,7 @@ pub async fn fetch_transactions_results(
     //TODO: Try to use tokio::StreamExt instead or figure out a way to return a Result
     // so we can handle errors if any of the requests fail
     futures::stream::iter(request_keys.chunks(transactions_per_request))
-        .map(|chunk| async move { poll(&chunk.to_vec(), &chain).await })
+        .map(|chunk| async move { poll(&chunk.to_vec(), chain).await })
         .buffer_unordered(concurrent_requests)
         .for_each(|result| {
             match result {
@@ -417,7 +410,7 @@ pub async fn fetch_transactions_results(
                     .append(&mut result.into_values().collect::<Vec<PactTransactionResult>>()),
                 Err(e) => log::info!("Error: {}", e),
             }
-            async { () }
+            async {}
         })
         .await;
     Ok(results)

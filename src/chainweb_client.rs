@@ -322,7 +322,7 @@ pub async fn get_block_headers_branches(
     let mut url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
     url.query_pairs_mut().append_pair("limit", "50");
     if let Some(next) = next {
-        url.query_pairs_mut().append_pair("next", &next);
+        url.query_pairs_mut().append_pair("next", next);
     }
     let mut headers = reqwest::header::HeaderMap::new();
     headers.append(
@@ -382,7 +382,7 @@ pub fn start_headers_stream(
     use eventsource_client::Client;
     use std::time::Duration;
 
-    let endpoint = format!("/header/updates");
+    let endpoint = "/header/updates".to_string();
     let url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
     let client = es::ClientBuilder::for_url(url.as_str())?
         .reconnect(
