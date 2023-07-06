@@ -28,3 +28,5 @@ services:
     environment:
       DATABASE_URL: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/bento"
       RUST_LOG: info
+    ports:
+      - "81:8181"
