@@ -34,7 +34,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(transactions.clone()))
             .service(tx)
     })
-    .bind(("127.0.0.1", 8181))?
+    .bind(("0.0.0.0", 8181))?
     .run()
     .await
 }
