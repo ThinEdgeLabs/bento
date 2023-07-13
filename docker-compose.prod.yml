@@ -9,18 +9,31 @@ services:
     volumes:
       - /mnt/volume_nyc1_02/data:/var/lib/postgresql/data/pgdata
 
+  builder:
+    build:
+      context: .
+      dockerfile: builder.dockerfile
+    image: &builder-image
+    environment:
+      DATABASE_URL: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/bento"
 
   indexer:
-    build: .
+    build:
+      context: .
+      dockerfile: indexer.dockerfile
+      args:
+        BUILDER_IMAGE: *builder-image
+    image: &indexer-image
     restart: no
     depends_on:
+      - builder
       - db
     environment:
       DATABASE_URL: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/bento"
       RUST_LOG: info
 
   api:
-    build: .
+    image: &indexer-image
     command: "./target/release/api"
     restart: always
     depends_on:
