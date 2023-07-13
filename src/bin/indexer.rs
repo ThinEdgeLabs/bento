@@ -1,9 +1,13 @@
-use dotenvy::dotenv;
-
 use bento::db;
 use bento::indexer::*;
 use bento::repository::*;
+use dotenvy::dotenv;
+use std::env;
 
+/// List of available commands:
+/// - `cargo run --bin indexer` - index blocks from current height
+/// - `cargo run --bin indexer -- --backfill` - index all blocks from current height to genesis
+///TODO: - `cargo run --bin indexer -- --gaps` - fill gaps
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
@@ -23,11 +27,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         transactions: transactions.clone(),
     };
 
-    log::info!("Starting chainweb indexing...");
+    let args: Vec<String> = env::args().collect();
+    let backfill = args.contains(&"--backfill".to_string());
+    let gaps = args.contains(&"--gaps".to_string());
 
-    indexer.run().await?;
-
-    log::info!("Done");
+    if backfill {
+        log::info!("Backfilling blocks...");
+        indexer.backfill().await?;
+    } else if gaps {
+        log::info!("Filling gaps...");
+        Err("Not implemented yet")?;
+        //indexer.fill_gaps().await?;
+    } else {
+        log::info!("Indexing blocks...");
+        indexer.listen_headers_stream().await?;
+    }
 
     Ok(())
 }
