@@ -3,16 +3,18 @@ use chrono::NaiveDateTime;
 use futures::stream;
 use futures::StreamExt;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
 use std::time::Instant;
 use std::vec;
 
-use super::chainweb_client::start_headers_stream;
-use super::chainweb_client::tx_result::PactTransactionResult;
+use crate::db::DbError;
+
+use super::chainweb_client;
 use super::chainweb_client::{
-    get_block_headers_branches, get_block_payload_batch, get_cut, poll, BlockHeader, BlockPayload,
-    Bounds, ChainId, Command, Cut, Hash, Payload, SignedTransaction,
+    tx_result::PactTransactionResult, BlockHeader, BlockPayload, Bounds, ChainId, Command, Cut,
+    Hash, Payload, SignedTransaction,
 };
 use super::models::*;
 use super::repository::*;
@@ -24,8 +26,8 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    pub async fn run(&self) -> Result<(), Box<dyn Error>> {
-        let cut = get_cut().await.unwrap();
+    pub async fn backfill(&self) -> Result<(), Box<dyn Error>> {
+        let cut = chainweb_client::get_cut().await.unwrap();
         let bounds: Vec<(ChainId, Bounds)> = self.get_all_bounds(&cut);
         stream::iter(bounds)
             .map(|(chain, bounds)| async move { self.index_chain(bounds, &chain).await })
@@ -36,30 +38,27 @@ impl Indexer {
     }
 
     pub async fn index_chain(&self, bounds: Bounds, chain: &ChainId) -> Result<(), Box<dyn Error>> {
-        log::info!("Syncing chain: {}, bounds: {:?}", chain.0, bounds,);
+        log::info!("Indexing chain: {}, bounds: {:?}", chain.0, bounds);
         let mut next_bounds = bounds;
         loop {
             let before = Instant::now();
-            let headers_response = get_block_headers_branches(chain, &next_bounds, &None)
+            let response = chainweb_client::get_block_headers_branches(chain, &next_bounds, &None)
                 .await
                 .unwrap();
-            log::debug!("Elapsed time to get headers: {:.2?}", before.elapsed());
-            match headers_response.items[..] {
+            match response.items[..] {
                 [] => return Ok(()),
                 _ => {
                     log::info!(
                         "Chain {}: retrieved {} blocks, between heights {} and {}",
                         chain.0,
-                        headers_response.items.len(),
-                        headers_response.items.first().unwrap().height,
-                        headers_response.items.last().unwrap().height
+                        response.items.len(),
+                        response.items.first().unwrap().height,
+                        response.items.last().unwrap().height
                     );
 
                     let previous_bounds = next_bounds.clone();
                     next_bounds = Bounds {
-                        upper: vec![Hash(
-                            headers_response.items.last().unwrap().hash.to_string(),
-                        )],
+                        upper: vec![Hash(response.items.last().unwrap().hash.to_string())],
                         ..next_bounds
                     };
                     if next_bounds == previous_bounds {
@@ -68,9 +67,9 @@ impl Indexer {
                     }
                 }
             }
-            self.process_headers(headers_response.items, chain).await?;
+            self.process_headers(response.items, chain).await?;
             log::info!(
-                "Chain {}, Elapsed time per batch: {:.2?}",
+                "Chain {}, elapsed time per batch: {:.2?}",
                 chain.0,
                 before.elapsed()
             );
@@ -124,11 +123,10 @@ impl Indexer {
     async fn process_headers(
         &self,
         headers: Vec<BlockHeader>,
-        chain: &ChainId,
+        chain_id: &ChainId,
     ) -> Result<(), Box<dyn Error>> {
-        let before_payloads = Instant::now();
-        let payloads = get_block_payload_batch(
-            chain,
+        let payloads = chainweb_client::get_block_payload_batch(
+            chain_id,
             headers
                 .iter()
                 .map(|e| e.payload_hash.as_str())
@@ -136,85 +134,79 @@ impl Indexer {
         )
         .await
         .unwrap();
-        log::debug!(
-            "Elapsed time to get payloads: {:.2?}",
-            before_payloads.elapsed()
-        );
 
-        //log::debug!("Received blocks payloads: {:#?}", payloads);
-        let headers_by_payload_hash = headers
-            .iter()
-            .map(|e| (e.payload_hash.clone(), e))
-            .collect::<std::collections::HashMap<String, &BlockHeader>>();
-        let payloads_by_hash = payloads
-            .iter()
-            .map(|e| (e.payload_hash.clone(), e))
-            .collect::<std::collections::HashMap<String, &BlockPayload>>();
-
-        match self.blocks.insert_batch(
-            &headers_by_payload_hash
-                .into_iter()
-                .map(|(payload_hash, header)| {
-                    build_block(header, payloads_by_hash.get(&payload_hash).unwrap())
-                })
-                .collect::<Vec<Block>>(),
-        ) {
+        match self.save_blocks(&headers, &payloads) {
             Ok(_) => {}
             Err(e) => panic!("Error inserting blocks: {:#?}", e),
         }
 
-        let signed_txs = get_signed_txs_from_payloads(&payloads);
-        let signed_txs_by_hash = signed_txs
-            .iter()
-            .map(|e| (e.hash.to_string(), e))
-            .collect::<std::collections::HashMap<String, &SignedTransaction>>(
-        );
-        log::debug!("Fetching {} transactions", signed_txs.len());
-        let before_transactions = Instant::now();
+        let signed_txs_by_hash = get_signed_txs_from_payloads(&payloads);
         let request_keys: Vec<String> = signed_txs_by_hash.keys().map(|e| e.to_string()).collect();
-        let results = fetch_transactions_results(&request_keys[..], chain).await;
-        log::debug!(
-            "Elapsed time to fetch transactions: {:.2?}",
-            before_transactions.elapsed()
-        );
-
-        match results {
-            Ok(results) => {
-                log::debug!("Received {} transactions", results.len());
-                let before_txs = Instant::now();
-                let txs: Vec<Transaction> = results
-                    .iter()
-                    .map(|pact_result| {
-                        let signed_tx = signed_txs_by_hash.get(&pact_result.request_key).unwrap();
-                        build_transaction(signed_tx, pact_result, chain)
-                    })
-                    .collect();
-                match self.transactions.insert_batch(&txs) {
-                    Ok(_) => {}
-                    Err(e) => panic!("Error inserting transactions: {:#?}", e),
-                }
-                log::debug!(
-                    "Elapsed time to insert transactions: {:.2?}",
-                    before_txs.elapsed()
-                );
-                let before_events = Instant::now();
-                let events: Vec<Event> = results
-                    .iter()
-                    .flat_map(|pact_result| {
-                        let signed_tx = signed_txs_by_hash.get(&pact_result.request_key).unwrap();
-                        build_events(signed_tx, pact_result)
-                    })
-                    .collect();
+        let tx_results = fetch_transactions_results(&request_keys[..], chain_id).await?;
+        let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
+        if txs.len() > 0 {
+            match self.transactions.insert_batch(&txs) {
+                Ok(inserted) => log::info!("Inserted {} transactions", inserted),
+                Err(e) => panic!("Error inserting transactions: {:#?}", e),
+            }
+            let events = get_events_from_txs(&tx_results, &signed_txs_by_hash);
+            if events.len() > 0 {
                 match self.events.insert_batch(&events) {
-                    Ok(_) => {}
+                    Ok(inserted) => log::info!("Inserted {} events", inserted),
                     Err(e) => panic!("Error inserting events: {:#?}", e),
                 }
-                log::debug!(
-                    "Elapsed time to insert events: {:.2?}",
-                    before_events.elapsed()
-                );
             }
-            Err(e) => log::error!("Error fetching transactions: {:#?}", e),
+        }
+        Ok(())
+    }
+
+    async fn process_header(
+        &self,
+        header: &BlockHeader,
+        chain_id: &ChainId,
+    ) -> Result<(), Box<dyn Error>> {
+        let payloads =
+            chainweb_client::get_block_payload_batch(chain_id, vec![header.payload_hash.as_str()])
+                .await?;
+        if payloads.is_empty() {
+            log::error!(
+                "No payload received from node, payload hash: {}, height: {}, chain: {}",
+                header.payload_hash,
+                header.height,
+                chain_id.0
+            );
+            //TODO: Should we retry here?
+            return Err("Unable to retrieve payload".into());
+        }
+        match self.save_block(&header, &payloads[0]) {
+            Err(e) => {
+                log::error!("Error saving block: {:#?}", e);
+                return Err(e);
+            }
+            Ok(block) => block,
+        };
+
+        let signed_txs_by_hash = get_signed_txs_from_payload(&payloads[0]);
+        let request_keys: Vec<String> = signed_txs_by_hash.keys().map(|e| e.to_string()).collect();
+        let tx_results = fetch_transactions_results(&request_keys[..], chain_id).await?;
+        let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
+        match self.transactions.insert_batch(&txs) {
+            Ok(inserted) => {
+                if inserted > 0 {
+                    log::info!("Inserted {} transactions", inserted)
+                }
+            }
+            Err(e) => panic!("Error inserting transactions: {:#?}", e),
+        }
+
+        let events = get_events_from_txs(&tx_results, &signed_txs_by_hash);
+        match self.events.insert_batch(&events) {
+            Ok(inserted) => {
+                if inserted > 0 {
+                    log::info!("Inserted {} events", inserted)
+                }
+            }
+            Err(e) => panic!("Error inserting events: {:#?}", e),
         }
         Ok(())
     }
@@ -224,19 +216,23 @@ impl Indexer {
         use eventsource_client as es;
         use futures::stream::TryStreamExt;
 
-        match start_headers_stream() {
+        match chainweb_client::start_headers_stream() {
             Ok(stream) => {
                 log::info!("Stream started");
                 match stream
                     .try_for_each_concurrent(4, |event| async move {
                         if let es::SSE::Event(ev) = event {
-                            log::info!("Event: {:?}", ev);
                             if ev.event_type == "BlockHeader" {
                                 let block_header_event: BlockHeaderEvent =
                                     serde_json::from_str(&ev.data).unwrap();
                                 let chain_id = block_header_event.header.chain_id.clone();
+                                log::info!(
+                                    "Received chain {} header at height {}",
+                                    chain_id,
+                                    block_header_event.header.height
+                                );
                                 match self
-                                    .process_headers(vec![block_header_event.header], &chain_id)
+                                    .process_header(&block_header_event.header, &chain_id)
                                     .await
                                 {
                                     Ok(_) => {}
@@ -261,23 +257,71 @@ impl Indexer {
             }
         }
     }
+
+    /// Builds the list of blocks from the given headers and payloads
+    /// and inserts them in the database in a single transaction.
+    fn save_blocks(
+        &self,
+        headers: &Vec<BlockHeader>,
+        payloads: &Vec<BlockPayload>,
+    ) -> Result<Vec<Block>, DbError> {
+        let headers_by_payload_hash = headers
+            .iter()
+            .map(|e| (e.payload_hash.clone(), e))
+            .collect::<HashMap<String, &BlockHeader>>();
+        let payloads_by_hash = payloads
+            .iter()
+            .map(|e| (e.payload_hash.clone(), e))
+            .collect::<HashMap<String, &BlockPayload>>();
+        let blocks = headers_by_payload_hash
+            .into_iter()
+            .map(|(payload_hash, header)| {
+                build_block(header, payloads_by_hash.get(&payload_hash).unwrap())
+            })
+            .collect::<Vec<Block>>();
+        self.blocks.insert_batch(&blocks)
+    }
+
+    fn save_block(&self, header: &BlockHeader, payload: &BlockPayload) -> Result<Block, DbError> {
+        use diesel::result::DatabaseErrorKind;
+        use diesel::result::Error::DatabaseError;
+        let block = build_block(header, payload);
+        match self.blocks.insert(&block) {
+            Ok(_) => Ok(block),
+            Err(e) => match e.downcast_ref() {
+                Some(DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                    log::info!("Block already exists");
+                    self.events.delete_all_by_block(&block.hash).unwrap();
+                    self.transactions.delete_all_by_block(&block.hash).unwrap();
+                    self.blocks
+                        .delete_one(block.height, block.chain_id)
+                        .unwrap();
+                    self.blocks.insert(&block)
+                }
+                _ => Err(e),
+            },
+        }
+    }
 }
 
-fn get_signed_txs_from_payloads(payloads: &[BlockPayload]) -> Vec<SignedTransaction> {
+fn get_signed_txs_from_payload(payload: &BlockPayload) -> HashMap<String, SignedTransaction> {
+    payload
+        .transactions
+        .iter()
+        .map(|tx| {
+            serde_json::from_slice::<SignedTransaction>(&base64_url::decode(&tx).unwrap()).unwrap()
+        })
+        .map(|tx| (tx.hash.clone(), tx))
+        .collect::<HashMap<String, SignedTransaction>>()
+}
+
+fn get_signed_txs_from_payloads(payloads: &[BlockPayload]) -> HashMap<String, SignedTransaction> {
     payloads
         .iter()
-        .map(|e| {
-            e.transactions
-                .iter()
-                .map(|tx| {
-                    serde_json::from_slice::<SignedTransaction>(&base64_url::decode(&tx).unwrap())
-                        .unwrap()
-                })
-                .collect::<Vec<SignedTransaction>>()
-        })
+        .map(get_signed_txs_from_payload)
         .filter(|e| !e.is_empty())
         .flatten()
-        .collect::<Vec<SignedTransaction>>()
+        .collect::<HashMap<String, SignedTransaction>>()
 }
 
 fn build_block(header: &BlockHeader, block_payload: &BlockPayload) -> Block {
@@ -300,6 +344,20 @@ fn build_block(header: &BlockHeader, block_payload: &BlockPayload) -> Block {
         predicate: miner_data["predicate"].to_string(),
         target: bigdecimal::BigDecimal::from(1),
     }
+}
+
+fn get_transactions_from_payload(
+    signed_txs: &HashMap<String, SignedTransaction>,
+    tx_results: &Vec<PactTransactionResult>,
+    chain_id: &ChainId,
+) -> Vec<Transaction> {
+    tx_results
+        .iter()
+        .map(|pact_result| {
+            let signed_tx = signed_txs.get(&pact_result.request_key).unwrap();
+            build_transaction(signed_tx, pact_result, chain_id)
+        })
+        .collect()
 }
 
 fn build_transaction(
@@ -364,6 +422,19 @@ fn build_transaction(
     };
 }
 
+fn get_events_from_txs(
+    tx_results: &Vec<PactTransactionResult>,
+    signed_txs_by_hash: &HashMap<String, SignedTransaction>,
+) -> Vec<Event> {
+    tx_results
+        .iter()
+        .flat_map(|pact_result| {
+            let signed_tx = signed_txs_by_hash.get(&pact_result.request_key).unwrap();
+            build_events(signed_tx, pact_result)
+        })
+        .collect()
+}
+
 fn build_events(
     signed_tx: &SignedTransaction,
     pact_result: &PactTransactionResult,
@@ -402,7 +473,7 @@ pub async fn fetch_transactions_results(
     //TODO: Try to use tokio::StreamExt instead or figure out a way to return a Result
     // so we can handle errors if any of the requests fail
     futures::stream::iter(request_keys.chunks(transactions_per_request))
-        .map(|chunk| async move { poll(&chunk.to_vec(), chain).await })
+        .map(|chunk| async move { chainweb_client::poll(&chunk.to_vec(), chain).await })
         .buffer_unordered(concurrent_requests)
         .for_each(|result| {
             match result {
@@ -416,12 +487,134 @@ pub async fn fetch_transactions_results(
     Ok(results)
 }
 
-//fn get_bounds_for_chain(chain: &ChainId) -> Vec<Bounds> {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chainweb_client::{BlockPayload, Sig};
+    use crate::{
+        chainweb_client::{BlockPayload, Sig},
+        db,
+    };
+
+    // #[test]
+    // fn test_save_blocks() {
+    //     dotenvy::from_filename(".env.test").ok();
+    //     let pool = db::initialize_db_pool();
+
+    //     let blocks = BlocksRepository { pool: pool.clone() };
+    //     let events = EventsRepository { pool: pool.clone() };
+    //     let mut transactions = TransactionsRepository { pool: pool.clone() };
+    //     transactions.delete_all().unwrap();
+    //     events.delete_all().unwrap();
+    //     blocks.delete_all().unwrap();
+
+    //     let indexer = Indexer {
+    //         blocks: blocks,
+    //         events: events,
+    //         transactions: transactions,
+    //     };
+    //     let header = BlockHeader {
+    //         creation_time: 1688902875826238,
+    //         parent: "mZ3SiegRI9qBY43T3B7VQ82jY40tSgU2E9A7ZGPvXhI".to_string(),
+    //         height: 3882292,
+    //         hash: "_6S6n6dhjGw-vVHwIyq8Ulk8VNSlADLchRJCJg4vclM".to_string(),
+    //         chain_id: ChainId(14),
+    //         payload_hash: "yRHdjMjoqIeqm8K7WW1c4A77jxi8qP__4x_BjgZoFgE".to_string(),
+    //         weight: "2CiW41EoGzYIeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
+    //         epoch_start: 1688901280684376,
+    //         feature_flags: BigDecimal::from(0),
+    //         adjacents: HashMap::from([(
+    //             ChainId(15),
+    //             "Z_lSTY7KrOVMHPqKhMTUCy3v3YPnljKAg16N3CX5dP8".to_string(),
+    //         )]),
+    //         chainweb_version: "mainnet01".to_string(),
+    //         target: "hvD3dR8UooHyvbpvuIKyu0eALPNztocLHAAAAAAAAAA".to_string(),
+    //         nonce: "11077503293030185962".to_string(),
+    //     };
+    //     let payload = BlockPayload {
+    //         miner_data: "eyJhY2NvdW50IjoiazplN2Y3MTMwZjM1OWZiMWY4Yzg3ODczYmY4NThhMGU5Y2JjM2MxMDU5ZjYyYWU3MTVlYzcyZTc2MGIwNTVlOWYzIiwicHJlZGljYXRlIjoia2V5cy1hbGwiLCJwdWJsaWMta2V5cyI6WyJlN2Y3MTMwZjM1OWZiMWY4Yzg3ODczYmY4NThhMGU5Y2JjM2MxMDU5ZjYyYWU3MTVlYzcyZTc2MGIwNTVlOWYzIl19".to_string(),
+    //         outputs_hash: "WrjWEw4Gj-60kcBPY3HZKTT9Gyoh0ZnAjFrL65Fc3GU".to_string(),
+    //         payload_hash: "yRHdjMjoqIeqm8K7WW1c4A77jxi8qP__4x_BjgZoFgE".to_string(),
+    //         transactions: vec![],
+    //         transactions_hash: "9yNSeh7rTW_j1ziKYyubdYUCefnO5K63d5RfPkHQXiM".to_string()
+    //     };
+    //     let chain_id = header.chain_id.0 as i64;
+    //     let hash = header.hash.clone();
+    //     indexer.save_blocks(&vec![header], &vec![payload]).unwrap();
+    //     let block = indexer
+    //         .blocks
+    //         .find_by_hash(&hash, chain_id)
+    //         .unwrap()
+    //         .unwrap();
+    //     assert_eq!(block.hash, hash);
+    // }
+
+    #[test]
+    fn test_save_block() {
+        dotenvy::from_filename(".env.test").ok();
+        let pool = db::initialize_db_pool();
+
+        let blocks = BlocksRepository { pool: pool.clone() };
+        let events = EventsRepository { pool: pool.clone() };
+        let transactions = TransactionsRepository { pool: pool.clone() };
+        transactions.delete_all().unwrap();
+        events.delete_all().unwrap();
+        blocks.delete_all().unwrap();
+
+        let indexer = Indexer {
+            blocks: blocks,
+            events: events,
+            transactions: transactions,
+        };
+        let orphan_header = BlockHeader {
+            creation_time: 1688902875826238,
+            parent: "mZ3SiegRI9qBY43T3B7VQ82jY40tSgU2E9A7ZGPvXhI".to_string(),
+            height: 3882292,
+            hash: "_6S6n6dhjGw-vVHwIyq8Ulk8VNSlADLchRJCJg4vclM".to_string(),
+            chain_id: ChainId(14),
+            payload_hash: "yRHdjMjoqIeqm8K7WW1c4A77jxi8qP__4x_BjgZoFgE".to_string(),
+            weight: "2CiW41EoGzYIeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
+            epoch_start: 1688901280684376,
+            feature_flags: BigDecimal::from(0),
+            adjacents: HashMap::from([(
+                ChainId(15),
+                "Z_lSTY7KrOVMHPqKhMTUCy3v3YPnljKAg16N3CX5dP8".to_string(),
+            )]),
+            chainweb_version: "mainnet01".to_string(),
+            target: "hvD3dR8UooHyvbpvuIKyu0eALPNztocLHAAAAAAAAAA".to_string(),
+            nonce: "11077503293030185962".to_string(),
+        };
+        let payload = BlockPayload {
+            miner_data: "eyJhY2NvdW50IjoiazplN2Y3MTMwZjM1OWZiMWY4Yzg3ODczYmY4NThhMGU5Y2JjM2MxMDU5ZjYyYWU3MTVlYzcyZTc2MGIwNTVlOWYzIiwicHJlZGljYXRlIjoia2V5cy1hbGwiLCJwdWJsaWMta2V5cyI6WyJlN2Y3MTMwZjM1OWZiMWY4Yzg3ODczYmY4NThhMGU5Y2JjM2MxMDU5ZjYyYWU3MTVlYzcyZTc2MGIwNTVlOWYzIl19".to_string(),
+            outputs_hash: "WrjWEw4Gj-60kcBPY3HZKTT9Gyoh0ZnAjFrL65Fc3GU".to_string(),
+            payload_hash: "yRHdjMjoqIeqm8K7WW1c4A77jxi8qP__4x_BjgZoFgE".to_string(),
+            transactions: vec![],
+            transactions_hash: "9yNSeh7rTW_j1ziKYyubdYUCefnO5K63d5RfPkHQXiM".to_string()
+        };
+        let chain_id = orphan_header.chain_id.0 as i64;
+        let hash = orphan_header.hash.clone();
+        indexer.save_block(&orphan_header, &payload).unwrap();
+        assert!(indexer
+            .blocks
+            .find_by_hash(&orphan_header.hash, chain_id)
+            .unwrap()
+            .is_some());
+        let header = BlockHeader {
+            hash: "new_hash".to_string(),
+            ..orphan_header
+        };
+        indexer.save_block(&header, &payload).unwrap();
+        let block = indexer.blocks.find_by_hash(&"new_hash", chain_id).unwrap();
+        println!("block: {:#?}", block);
+        let orphan_block = indexer.blocks.find_by_hash(&hash, chain_id).unwrap();
+        assert!(block.is_some());
+        println!("orphan_block: {:#?}", orphan_block);
+        assert!(orphan_block.is_none());
+        // Dealing with duplicate blocks (this only happens through the headers stream):
+        // - try to insert the block
+        // - if it fails, check if the block is already in the db
+        // - if it is, delete the block, transactions and events
+        // - insert the block again
+    }
 
     #[test]
     fn test_get_signed_txs_from_payloads() {
@@ -435,18 +628,19 @@ mod tests {
             outputs_hash: String::from("7aK26TiKVzvnsjXcL0h4iWg3r6_HBmPoqNpO-o5mYcQ"),
             miner_data: String::from("eyJhY2NvdW50IjoiYzUwYjlhY2I0OWNhMjVmNTkxOTNiOTViNGUwOGU1MmUyZWM4OWZhMWJmMzA4ZTY0MzZmMzlhNDBhYzJkYzRmMyIsInByZWRpY2F0ZSI6ImtleXMtYWxsIiwicHVibGljLWtleXMiOlsiYzUwYjlhY2I0OWNhMjVmNTkxOTNiOTViNGUwOGU1MmUyZWM4OWZhMWJmMzA4ZTY0MzZmMzlhNDBhYzJkYzRmMyJdfQ"),
         };
-        let signed_txs = vec![
-            SignedTransaction {
+        let signed_txs = HashMap::from([
+
+            (String::from("gaD_OZdL3cJKGelC73laoBDJjWJTkstkkjIAIKOOq1U"), SignedTransaction {
                 cmd: String::from("{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"keyset\":{\"pred\":\"keys-all\",\"keys\":[\"56df77b51a5b6100dd25eb7b9cb55f3d1994f21369cb565cf9d9f7c1d630d1ef\"]}},\"code\":\"(free.radio02.add-received \\\"30ae7bfffee347e6\\\" \\\"U2FsdGVkX1/96zcn8NhZ3ih4dRhy0Thvm72dnl7HKAI=;;;;;qTUcRG54XW+vRuO+ttj+iaxOwojNSIwCZCXtufJVFfPDbkVvLbY885sD0GY+7rlNjZyfprGhWfTthAOP9bq8Io/5yxu888zPFZdfQD1ngVrk0RzhZ3Ac2HtJXtGBJUKr21j/T5d//WBTgCmtXIi+GvqH2Nrhq6PuVZmyvlTYSP8=\\\" )\"}},\"signers\":[{\"pubKey\":\"56df77b51a5b6100dd25eb7b9cb55f3d1994f21369cb565cf9d9f7c1d630d1ef\"}],\"meta\":{\"creationTime\":1687691365,\"ttl\":28800,\"gasLimit\":1000,\"chainId\":\"0\",\"gasPrice\":0.000001,\"sender\":\"k:56df77b51a5b6100dd25eb7b9cb55f3d1994f21369cb565cf9d9f7c1d630d1ef\"},\"nonce\":\"\\\"2023-06-25T11:09:44.635Z\\\"\"}"),
                 hash: String::from("gaD_OZdL3cJKGelC73laoBDJjWJTkstkkjIAIKOOq1U"),
                 sigs: vec![Sig { sig: String::from("328aa76e9f04055e7a0a47318030721508f23ac9b14689a6ce0e60b63be4226cafcb3d421138349ae6adad4610f30460041da40df22d461549892560355df102")}]
-            },
-            SignedTransaction {
+            }),
+            (String::from("tdZsPK1KjFEwn3Fmm3tTb6DK5XulN1p_ZNzq24pvxfw"), SignedTransaction {
                 cmd: String::from("{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"keyset\":{\"pred\":\"keys-all\",\"keys\":[\"7c51dd668165d5cd8b0a7a11141bc1ec981f3fed008f554c67174c04b87b7a9c\"]}},\"code\":\"(free.radio02.update-sent \\\"U2FsdGVkX19/DOLIhAyW0TzeK0f3H14qzkYV8q7BPHs=;;;;;FEhcJxTWnOHbi1MeDBuYiOfbhFbqzzUAsOZGsmUpt6kIlMCdGF8ory0xFgAfBhnISHL0DghsWVV46aEmY+c3X/zuSk/eNnWxECmRGW7/szC7VY+2x7FxOW+9cOyp0htVw6St7kwTAMMZFBuH0bCRllgefpgRWlS2X+DUDdmdxQo=\\\" )\"}},\"signers\":[{\"pubKey\":\"7c51dd668165d5cd8b0a7a11141bc1ec981f3fed008f554c67174c04b87b7a9c\"}],\"meta\":{\"creationTime\":1687691373,\"ttl\":28800,\"gasLimit\":7000,\"chainId\":\"0\",\"gasPrice\":0.000001,\"sender\":\"k:7c51dd668165d5cd8b0a7a11141bc1ec981f3fed008f554c67174c04b87b7a9c\"},\"nonce\":\"\\\"2023-06-25T11:09:47.940Z\\\"\"}"),
                 hash: String::from("tdZsPK1KjFEwn3Fmm3tTb6DK5XulN1p_ZNzq24pvxfw"),
                 sigs: vec![Sig { sig: String::from("43f1212465bdbc41bf0216c26ba332805fa2ad618a20fe65bd4efb559902af69b0c8bed440287c343ffe38ee66b3bf6a1bd376b5781055b92a71fc610304740a")}]
-            },
-        ];
+            }),
+        ]);
         assert_eq!(get_signed_txs_from_payloads(&vec![payload]), signed_txs);
     }
 }
