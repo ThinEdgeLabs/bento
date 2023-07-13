@@ -1,3 +1,5 @@
+use crate::db::DbError;
+
 use super::db::DbPool;
 use super::models::*;
 use diesel::prelude::*;
@@ -58,7 +60,7 @@ impl BlocksRepository {
     }
 
     #[allow(dead_code)]
-    pub fn insert(&self, block: &Block) -> Result<Block, diesel::result::Error> {
+    pub fn insert(&self, block: &Block) -> Result<Block, DbError> {
         use crate::schema::blocks::dsl::*;
         let mut conn = self.pool.get().unwrap();
         let new_block = diesel::insert_into(blocks)
@@ -68,7 +70,7 @@ impl BlocksRepository {
         Ok(new_block)
     }
 
-    pub fn insert_batch(&self, blocks: &Vec<Block>) -> Result<Vec<Block>, diesel::result::Error> {
+    pub fn insert_batch(&self, blocks: &Vec<Block>) -> Result<Vec<Block>, DbError> {
         use crate::schema::blocks::dsl::blocks as blocks_table;
         let mut conn = self.pool.get().unwrap();
         let inserted = diesel::insert_into(blocks_table)
@@ -88,11 +90,17 @@ impl BlocksRepository {
     }
 
     #[allow(dead_code)]
-    pub fn delete_one(&self, hash: &str) -> Result<usize, diesel::result::Error> {
-        use crate::schema::blocks::dsl::{blocks as blocks_table, hash as hash_column};
+    pub fn delete_one(&self, height: i64, chain_id: i64) -> Result<usize, DbError> {
+        use crate::schema::blocks::dsl::{
+            blocks as blocks_table, chain_id as chain_id_col, height as height_col,
+        };
         let mut conn = self.pool.get().unwrap();
-        let deleted =
-            diesel::delete(blocks_table.filter(hash_column.eq(hash))).execute(&mut conn)?;
+        let deleted = diesel::delete(
+            blocks_table
+                .filter(height_col.eq(height))
+                .filter(chain_id_col.eq(chain_id)),
+        )
+        .execute(&mut conn)?;
         Ok(deleted)
     }
 }
@@ -136,7 +144,7 @@ impl EventsRepository {
     }
 
     #[allow(dead_code)]
-    pub fn delete_all(&self) -> Result<usize, diesel::result::Error> {
+    pub fn delete_all(&self) -> Result<usize, DbError> {
         use crate::schema::events::dsl::*;
         let mut conn = self.pool.get().unwrap();
         let deleted = diesel::delete(events).execute(&mut conn)?;
@@ -144,12 +152,7 @@ impl EventsRepository {
     }
 
     #[allow(dead_code)]
-    pub fn delete_one(
-        &self,
-        block: &str,
-        idx: i64,
-        request_key: &str,
-    ) -> Result<usize, diesel::result::Error> {
+    pub fn delete_one(&self, block: &str, idx: i64, request_key: &str) -> Result<usize, DbError> {
         use crate::schema::events::dsl::{
             block as block_col, events, idx as idx_col, request_key as request_key_col,
         };
@@ -163,6 +166,13 @@ impl EventsRepository {
         .execute(&mut conn)?;
         Ok(deleted)
     }
+
+    pub fn delete_all_by_block(&self, hash: &str) -> Result<usize, DbError> {
+        use crate::schema::events::dsl::{block as block_col, events};
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(events.filter(block_col.eq(hash))).execute(&mut conn)?;
+        Ok(deleted)
+    }
 }
 
 #[derive(Clone)]
@@ -172,7 +182,7 @@ pub struct TransactionsRepository {
 
 impl TransactionsRepository {
     #[allow(dead_code)]
-    pub fn find_all(&self) -> Result<Vec<Transaction>, diesel::result::Error> {
+    pub fn find_all(&self) -> Result<Vec<Transaction>, DbError> {
         use crate::schema::transactions::dsl::*;
         let mut conn = self.pool.get().unwrap();
         let results = transactions
@@ -182,10 +192,7 @@ impl TransactionsRepository {
     }
 
     #[allow(dead_code)]
-    pub fn find_by_request_key(
-        &self,
-        request_key: &str,
-    ) -> Result<Option<Transaction>, diesel::result::Error> {
+    pub fn find_by_request_key(&self, request_key: &str) -> Result<Option<Transaction>, DbError> {
         use crate::schema::transactions::dsl::{
             request_key as request_key_column, transactions as transactions_table,
         };
@@ -200,10 +207,7 @@ impl TransactionsRepository {
     }
 
     #[allow(dead_code)]
-    pub fn find_all_related(
-        &self,
-        request_key: &str,
-    ) -> Result<Vec<Transaction>, diesel::result::Error> {
+    pub fn find_all_related(&self, request_key: &str) -> Result<Vec<Transaction>, DbError> {
         match self.find_by_request_key(request_key) {
             Ok(Some(transaction)) => match transaction.pact_id {
                 Some(ref pact_id) => self.find_by_pact_id(pact_id),
@@ -215,10 +219,7 @@ impl TransactionsRepository {
     }
 
     #[allow(dead_code)]
-    pub fn find_by_pact_id(
-        &self,
-        pact_id: &str,
-    ) -> Result<Vec<Transaction>, diesel::result::Error> {
+    pub fn find_by_pact_id(&self, pact_id: &str) -> Result<Vec<Transaction>, DbError> {
         use crate::schema::transactions::dsl::{
             pact_id as pact_id_column, transactions as transactions_table,
         };
@@ -231,7 +232,7 @@ impl TransactionsRepository {
     }
 
     #[allow(dead_code)]
-    pub fn insert(&self, transaction: &Transaction) -> Result<Transaction, diesel::result::Error> {
+    pub fn insert(&self, transaction: &Transaction) -> Result<Transaction, DbError> {
         use crate::schema::transactions::dsl::*;
         let mut conn = self.pool.get().unwrap();
         let transaction = diesel::insert_into(transactions)
@@ -241,10 +242,7 @@ impl TransactionsRepository {
         Ok(transaction)
     }
 
-    pub fn insert_batch(
-        &self,
-        transactions: &[Transaction],
-    ) -> Result<usize, diesel::result::Error> {
+    pub fn insert_batch(&self, transactions: &[Transaction]) -> Result<usize, DbError> {
         use crate::schema::transactions::dsl::transactions as transactions_table;
         let mut conn = self.pool.get().unwrap();
         let mut inserted = 0;
@@ -258,19 +256,22 @@ impl TransactionsRepository {
     }
 
     #[allow(dead_code)]
-    pub fn delete_all(&mut self) -> Result<usize, diesel::result::Error> {
+    pub fn delete_all(&self) -> Result<usize, DbError> {
         use crate::schema::transactions::dsl::*;
         let mut conn = self.pool.get().unwrap();
         let deleted = diesel::delete(transactions).execute(&mut conn)?;
         Ok(deleted)
     }
 
+    pub fn delete_all_by_block(&self, hash: &str) -> Result<usize, DbError> {
+        use crate::schema::transactions::dsl::{block as block_col, transactions};
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(transactions.filter(block_col.eq(hash))).execute(&mut conn)?;
+        Ok(deleted)
+    }
+
     #[allow(dead_code)]
-    pub fn delete_one(
-        &self,
-        block: &str,
-        request_key: &str,
-    ) -> Result<usize, diesel::result::Error> {
+    pub fn delete_one(&self, block: &str, request_key: &str) -> Result<usize, DbError> {
         use crate::schema::transactions::dsl::{
             block as block_column, request_key as request_key_column, transactions,
         };
