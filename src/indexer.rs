@@ -291,8 +291,13 @@ impl Indexer {
             Err(e) => match e.downcast_ref() {
                 Some(DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
                     log::info!("Block already exists");
-                    self.events.delete_all_by_block(&block.hash).unwrap();
-                    self.transactions.delete_all_by_block(&block.hash).unwrap();
+                    let orphan = self
+                        .blocks
+                        .find_by_height(block.height, block.chain_id)
+                        .unwrap()
+                        .unwrap();
+                    self.events.delete_all_by_block(&orphan.hash).unwrap();
+                    self.transactions.delete_all_by_block(&orphan.hash).unwrap();
                     self.blocks
                         .delete_one(block.height, block.chain_id)
                         .unwrap();
@@ -605,8 +610,8 @@ mod tests {
         indexer.save_block(&header, &payload).unwrap();
         let block = indexer.blocks.find_by_hash(&"new_hash", chain_id).unwrap();
         println!("block: {:#?}", block);
-        let orphan_block = indexer.blocks.find_by_hash(&hash, chain_id).unwrap();
         assert!(block.is_some());
+        let orphan_block = indexer.blocks.find_by_hash(&hash, chain_id).unwrap();
         println!("orphan_block: {:#?}", orphan_block);
         assert!(orphan_block.is_none());
         // Dealing with duplicate blocks (this only happens through the headers stream):
@@ -629,7 +634,6 @@ mod tests {
             miner_data: String::from("eyJhY2NvdW50IjoiYzUwYjlhY2I0OWNhMjVmNTkxOTNiOTViNGUwOGU1MmUyZWM4OWZhMWJmMzA4ZTY0MzZmMzlhNDBhYzJkYzRmMyIsInByZWRpY2F0ZSI6ImtleXMtYWxsIiwicHVibGljLWtleXMiOlsiYzUwYjlhY2I0OWNhMjVmNTkxOTNiOTViNGUwOGU1MmUyZWM4OWZhMWJmMzA4ZTY0MzZmMzlhNDBhYzJkYzRmMyJdfQ"),
         };
         let signed_txs = HashMap::from([
-
             (String::from("gaD_OZdL3cJKGelC73laoBDJjWJTkstkkjIAIKOOq1U"), SignedTransaction {
                 cmd: String::from("{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"keyset\":{\"pred\":\"keys-all\",\"keys\":[\"56df77b51a5b6100dd25eb7b9cb55f3d1994f21369cb565cf9d9f7c1d630d1ef\"]}},\"code\":\"(free.radio02.add-received \\\"30ae7bfffee347e6\\\" \\\"U2FsdGVkX1/96zcn8NhZ3ih4dRhy0Thvm72dnl7HKAI=;;;;;qTUcRG54XW+vRuO+ttj+iaxOwojNSIwCZCXtufJVFfPDbkVvLbY885sD0GY+7rlNjZyfprGhWfTthAOP9bq8Io/5yxu888zPFZdfQD1ngVrk0RzhZ3Ac2HtJXtGBJUKr21j/T5d//WBTgCmtXIi+GvqH2Nrhq6PuVZmyvlTYSP8=\\\" )\"}},\"signers\":[{\"pubKey\":\"56df77b51a5b6100dd25eb7b9cb55f3d1994f21369cb565cf9d9f7c1d630d1ef\"}],\"meta\":{\"creationTime\":1687691365,\"ttl\":28800,\"gasLimit\":1000,\"chainId\":\"0\",\"gasPrice\":0.000001,\"sender\":\"k:56df77b51a5b6100dd25eb7b9cb55f3d1994f21369cb565cf9d9f7c1d630d1ef\"},\"nonce\":\"\\\"2023-06-25T11:09:44.635Z\\\"\"}"),
                 hash: String::from("gaD_OZdL3cJKGelC73laoBDJjWJTkstkkjIAIKOOq1U"),

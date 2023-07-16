@@ -37,6 +37,24 @@ impl BlocksRepository {
         Ok(result)
     }
 
+    pub fn find_by_height(
+        &self,
+        height: i64,
+        chain_id: i64,
+    ) -> Result<Option<Block>, diesel::result::Error> {
+        use crate::schema::blocks::dsl::{
+            blocks as blocks_table, chain_id as chain_id_column, height as height_column,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let result = blocks_table
+            .filter(height_column.eq(height))
+            .filter(chain_id_column.eq(chain_id))
+            .select(Block::as_select())
+            .first::<Block>(&mut conn)
+            .optional()?;
+        Ok(result)
+    }
+
     pub fn find_min_max_height_blocks(
         &self,
         chain_id: i64,
