@@ -299,7 +299,7 @@ impl Indexer {
                     self.events.delete_all_by_block(&orphan.hash).unwrap();
                     self.transactions.delete_all_by_block(&orphan.hash).unwrap();
                     self.blocks
-                        .delete_one(block.height, block.chain_id)
+                        .delete_by_hash(&orphan.hash, orphan.chain_id)
                         .unwrap();
                     self.blocks.insert(&block)
                 }

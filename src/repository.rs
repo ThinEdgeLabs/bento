@@ -121,6 +121,20 @@ impl BlocksRepository {
         .execute(&mut conn)?;
         Ok(deleted)
     }
+
+    pub fn delete_by_hash(&self, hash: &str, chain_id: i64) -> Result<usize, DbError> {
+        use crate::schema::blocks::dsl::{
+            blocks as blocks_table, chain_id as chain_id_col, hash as hash_col,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(
+            blocks_table
+                .filter(hash_col.eq(hash))
+                .filter(chain_id_col.eq(chain_id)),
+        )
+        .execute(&mut conn)?;
+        Ok(deleted)
+    }
 }
 
 #[derive(Clone)]
