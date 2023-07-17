@@ -220,7 +220,7 @@ impl Indexer {
             Ok(stream) => {
                 log::info!("Stream started");
                 match stream
-                    .try_for_each_concurrent(4, |event| async move {
+                    .try_for_each(|event| async move {
                         if let es::SSE::Event(ev) = event {
                             if ev.event_type == "BlockHeader" {
                                 let block_header_event: BlockHeaderEvent =
