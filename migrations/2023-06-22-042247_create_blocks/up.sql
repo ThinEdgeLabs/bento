@@ -15,4 +15,4 @@ CREATE TABLE blocks (
     weight numeric(80,0) NOT NULL
 );
 
-CREATE INDEX blocks_height_chainid_idx ON blocks (height DESC, chain_id);
+CREATE UNIQUE INDEX blocks_height_chainid_idx ON blocks (height DESC, chain_id);
