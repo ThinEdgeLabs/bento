@@ -178,7 +178,8 @@ impl Indexer {
             //TODO: Should we retry here?
             return Err("Unable to retrieve payload".into());
         }
-        match self.save_block(&header, &payloads[0]) {
+        let block = build_block(&header, &payloads[0]);
+        match self.save_block(&block) {
             Err(e) => {
                 log::error!("Error saving block: {:#?}", e);
                 return Err(e);
@@ -282,12 +283,11 @@ impl Indexer {
         self.blocks.insert_batch(&blocks)
     }
 
-    fn save_block(&self, header: &BlockHeader, payload: &BlockPayload) -> Result<Block, DbError> {
+    fn save_block(&self, block: &Block) -> Result<Block, DbError> {
         use diesel::result::DatabaseErrorKind;
         use diesel::result::Error::DatabaseError;
-        let block = build_block(header, payload);
-        match self.blocks.insert(&block) {
-            Ok(_) => Ok(block),
+        match self.blocks.insert(block) {
+            Ok(inserted_block) => Ok(inserted_block),
             Err(e) => match e.downcast_ref() {
                 Some(DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
                     log::info!("Block already exists");
@@ -561,6 +561,7 @@ mod tests {
         let blocks = BlocksRepository { pool: pool.clone() };
         let events = EventsRepository { pool: pool.clone() };
         let transactions = TransactionsRepository { pool: pool.clone() };
+
         transactions.delete_all().unwrap();
         events.delete_all().unwrap();
         blocks.delete_all().unwrap();
@@ -570,6 +571,7 @@ mod tests {
             events: events,
             transactions: transactions,
         };
+
         let orphan_header = BlockHeader {
             creation_time: 1688902875826238,
             parent: "mZ3SiegRI9qBY43T3B7VQ82jY40tSgU2E9A7ZGPvXhI".to_string(),
@@ -597,22 +599,24 @@ mod tests {
         };
         let chain_id = orphan_header.chain_id.0 as i64;
         let hash = orphan_header.hash.clone();
-        indexer.save_block(&orphan_header, &payload).unwrap();
-        assert!(indexer
+        let block = build_block(&orphan_header, &payload);
+        indexer.save_block(&block).unwrap();
+        let block = indexer
             .blocks
             .find_by_hash(&orphan_header.hash, chain_id)
-            .unwrap()
-            .is_some());
+            .unwrap();
+        assert!(block.is_some());
+        println!("{:#?}", block);
         let header = BlockHeader {
             hash: "new_hash".to_string(),
             ..orphan_header
         };
-        indexer.save_block(&header, &payload).unwrap();
+        let block = build_block(&header, &payload);
+        indexer.save_block(&block).unwrap();
         let block = indexer.blocks.find_by_hash(&"new_hash", chain_id).unwrap();
-        println!("block: {:#?}", block);
         assert!(block.is_some());
+        println!("{:#?}", block);
         let orphan_block = indexer.blocks.find_by_hash(&hash, chain_id).unwrap();
-        println!("orphan_block: {:#?}", orphan_block);
         assert!(orphan_block.is_none());
         // Dealing with duplicate blocks (this only happens through the headers stream):
         // - try to insert the block
