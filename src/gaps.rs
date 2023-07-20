@@ -7,7 +7,7 @@ pub fn fill_gaps() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[allow(dead_code)]
-fn find_gaps(
+pub fn find_gaps(
     chain_id: &ChainId,
     repository: &BlocksRepository,
 ) -> Result<Vec<(i64, i64)>, DbError> {
@@ -99,8 +99,7 @@ fn find_gaps_in_range(
             batch_size,
         )
     }
-    let gaps = go(min_height, max_height, chain, repository, vec![], None, 5)?;
-    //print!("Gaps found: {:?}", gaps);
+    let gaps = go(min_height, max_height, chain, repository, vec![], None, 100)?;
     Ok(gaps)
 }
 
