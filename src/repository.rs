@@ -37,11 +37,7 @@ impl BlocksRepository {
         Ok(result)
     }
 
-    pub fn find_by_height(
-        &self,
-        height: i64,
-        chain_id: i64,
-    ) -> Result<Option<Block>, diesel::result::Error> {
+    pub fn find_by_height(&self, height: i64, chain_id: i64) -> Result<Option<Block>, DbError> {
         use crate::schema::blocks::dsl::{
             blocks as blocks_table, chain_id as chain_id_column, height as height_column,
         };
@@ -55,10 +51,30 @@ impl BlocksRepository {
         Ok(result)
     }
 
+    pub fn find_by_range(
+        &self,
+        min_height: i64,
+        max_height: i64,
+        chain_id: i64,
+    ) -> Result<Vec<Block>, DbError> {
+        use crate::schema::blocks::dsl::{
+            blocks as blocks_table, chain_id as chain_id_column, height as height_column,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let results = blocks_table
+            .filter(height_column.ge(min_height))
+            .filter(height_column.le(max_height))
+            .filter(chain_id_column.eq(chain_id))
+            .select(Block::as_select())
+            .order(height_column.desc())
+            .load::<Block>(&mut conn)?;
+        Ok(results)
+    }
+
     pub fn find_min_max_height_blocks(
         &self,
         chain_id: i64,
-    ) -> Result<(Option<Block>, Option<Block>), diesel::result::Error> {
+    ) -> Result<(Option<Block>, Option<Block>), DbError> {
         use crate::schema::blocks::dsl::{
             blocks as blocks_table, chain_id as chain_id_column, height,
         };
@@ -75,6 +91,17 @@ impl BlocksRepository {
             .first::<Block>(&mut conn)
             .optional()?;
         Ok((min_block, max_block))
+    }
+
+    pub fn count(&self, chain_id: i64) -> Result<i64, DbError> {
+        use crate::schema::blocks::dsl::{blocks, chain_id as chain_id_col, height};
+        use diesel::dsl::count;
+        let mut conn = self.pool.get().unwrap();
+        let count = blocks
+            .select(count(height))
+            .filter(chain_id_col.eq(chain_id))
+            .first(&mut conn)?;
+        Ok(count)
     }
 
     #[allow(dead_code)]
