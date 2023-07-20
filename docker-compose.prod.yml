@@ -33,11 +33,13 @@ services:
       RUST_LOG: info
 
   api:
-    image: indexer
-    command: "./target/release/api"
+    build:
+      context: .
+      dockerfile: api.dockerfile
+      args:
+        BUILDER_IMAGE: builder
     restart: always
     depends_on:
-      - indexer
       - db
     environment:
       DATABASE_URL: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/bento"
