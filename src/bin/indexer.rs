@@ -36,10 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Backfilling blocks...");
         indexer.backfill().await?;
     } else if gaps {
-        use bento::chainweb_client::ChainId;
         log::info!("Filling gaps...");
-        let gaps = gaps::find_gaps(&ChainId(0), &blocks).unwrap();
-        log::info!("Found gaps: {:?}", gaps);
+        gaps::fill_gaps(&blocks).await?;
     } else {
         log::info!("Indexing blocks...");
         indexer.listen_headers_stream().await?;

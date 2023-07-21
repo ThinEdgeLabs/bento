@@ -1,8 +1,24 @@
 use std::vec;
 
-use crate::{chainweb_client::ChainId, db::DbError, repository::BlocksRepository};
+use crate::chainweb_client::{self, ChainId};
+use crate::{db::DbError, repository::BlocksRepository};
 
-pub fn fill_gaps() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn fill_gaps(blocks_repo: &BlocksRepository) -> Result<(), Box<dyn std::error::Error>> {
+    let cut = chainweb_client::get_cut().await.unwrap();
+    cut.hashes.iter().for_each(|(chain, _)| {
+        log::info!("Chain: {}", chain);
+        let gaps = find_gaps(chain, blocks_repo).unwrap();
+        let missing_blocks = gaps
+            .iter()
+            .map(|gap| {
+                gap.1 - gap.0 + 1
+                //log::info!("Filling gap: {:?}", gap);
+                //chainweb_client::get_blocks(gap.0, gap.1, *chain as u32)
+            })
+            .reduce(|acc, e| acc + e)
+            .unwrap();
+        log::info!("Missing blocks: {}", missing_blocks);
+    });
     Ok(())
 }
 
