@@ -51,31 +51,19 @@ fn find_gaps_in_range(
     chain: i64,
     repository: &BlocksRepository,
 ) -> Result<Vec<(i64, i64)>, DbError> {
-    fn go(
-        min_height: i64,
-        max_height: i64,
-        chain: i64,
-        repository: &BlocksRepository,
-        gaps_found: Vec<(i64, i64)>,
-        last_height: Option<i64>,
-        batch_size: i64,
-    ) -> Result<Vec<(i64, i64)>, DbError> {
+    let batch_size = 100;
+    let mut max_height = max_height;
+    let mut gaps: Vec<(i64, i64)> = vec![];
+    let mut last_height = None;
+    loop {
         if max_height <= min_height {
-            return Ok(gaps_found);
+            return Ok(gaps);
         }
         let blocks = repository.find_by_range(max_height - batch_size, max_height, chain)?;
         if blocks.is_empty() {
-            return go(
-                min_height,
-                max_height - batch_size,
-                chain,
-                repository,
-                gaps_found,
-                last_height,
-                batch_size,
-            );
+            max_height -= batch_size;
+            continue;
         }
-        let mut gaps: Vec<(i64, i64)> = vec![];
         let mut previous_height = if last_height.is_none() {
             blocks.last().unwrap().height
         } else {
@@ -89,18 +77,9 @@ fn find_gaps_in_range(
             previous_height = block.height;
         }
 
-        go(
-            min_height,
-            max_height - batch_size,
-            chain,
-            repository,
-            [gaps_found, gaps].concat(),
-            Some(previous_height),
-            batch_size,
-        )
+        max_height -= batch_size;
+        last_height = Some(previous_height);
     }
-    let gaps = go(min_height, max_height, chain, repository, vec![], None, 100)?;
-    Ok(gaps)
 }
 
 #[cfg(test)]
