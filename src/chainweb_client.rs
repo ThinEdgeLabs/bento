@@ -1,3 +1,4 @@
+use self::tx_result::PactTransactionResult;
 use bigdecimal::BigDecimal;
 use eventsource_client::SSE;
 use futures::Stream;
@@ -7,8 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Display;
 use std::{collections::HashMap, error::Error};
-
-use self::tx_result::PactTransactionResult;
 
 const HOST: &str = "http://147.182.182.28/chainweb/0.0/mainnet01";
 
@@ -317,12 +316,22 @@ pub async fn get_block_headers_branches(
     chain: &ChainId,
     bounds: &Bounds,
     next: &Option<String>,
+    min_height: &Option<u64>,
+    max_height: &Option<u64>,
 ) -> Result<BlockHeaderResponse, Box<dyn Error>> {
     let endpoint = format!("/chain/{chain}/header/branch");
     let mut url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
     url.query_pairs_mut().append_pair("limit", "50");
     if let Some(next) = next {
         url.query_pairs_mut().append_pair("next", next);
+    }
+    if let Some(min_height) = min_height {
+        url.query_pairs_mut()
+            .append_pair("minheight", &min_height.to_string());
+    }
+    if let Some(max_height) = max_height {
+        url.query_pairs_mut()
+            .append_pair("maxheight", &max_height.to_string());
     }
     let mut headers = reqwest::header::HeaderMap::new();
     headers.append(

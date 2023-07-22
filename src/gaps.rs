@@ -1,24 +1,58 @@
 use std::vec;
 
-use crate::chainweb_client::{self, ChainId};
+use crate::chainweb_client::{self, Bounds, ChainId, Hash};
+use crate::indexer::Indexer;
 use crate::{db::DbError, repository::BlocksRepository};
 
-pub async fn fill_gaps(blocks_repo: &BlocksRepository) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn fill_gaps(
+    blocks_repo: &BlocksRepository,
+    indexer: &Indexer,
+) -> Result<(), Box<dyn std::error::Error>> {
     let cut = chainweb_client::get_cut().await.unwrap();
-    cut.hashes.iter().for_each(|(chain, _)| {
-        log::info!("Chain: {}", chain);
-        let gaps = find_gaps(chain, blocks_repo).unwrap();
-        let missing_blocks = gaps
-            .iter()
-            .map(|gap| {
-                gap.1 - gap.0 + 1
-                //log::info!("Filling gap: {:?}", gap);
-                //chainweb_client::get_blocks(gap.0, gap.1, *chain as u32)
-            })
-            .reduce(|acc, e| acc + e)
+
+    let gaps = cut
+        .hashes
+        .iter()
+        .map(|(chain, last_block_hash)| {
+            let gaps = find_gaps(&chain, blocks_repo).unwrap();
+            let missing_blocks = gaps
+                .iter()
+                .map(|gap| gap.1 - gap.0 + 1)
+                .reduce(|acc, e| acc + e)
+                .unwrap();
+            log::info!("Chain {}, is missing {} blocks.", chain, missing_blocks);
+            let bounds = Bounds {
+                lower: vec![],
+                upper: vec![Hash(last_block_hash.hash.clone())],
+            };
+            (chain, bounds, gaps)
+        })
+        .collect::<Vec<(&ChainId, Bounds, Vec<(i64, i64)>)>>();
+
+    //TODO: Use something like for_each_concurrent to fill gaps in parallel
+    for el in gaps {
+        let (chain, bounds, gaps) = el;
+        log::info!("Filling gaps for chain: {:?}", chain);
+        for gap in gaps {
+            let response = chainweb_client::get_block_headers_branches(
+                &chain,
+                &bounds,
+                &None,
+                &Some(gap.0 as u64),
+                &Some(gap.1 as u64),
+            )
+            .await
             .unwrap();
-        log::info!("Missing blocks: {}", missing_blocks);
-    });
+            log::info!("Filling gap: {:?}", gap);
+            log::info!(
+                "Headers: {} - {}",
+                response.items[0].height,
+                response.items[response.items.len() - 1].height
+            );
+            indexer.process_headers(response.items, chain).await?;
+            log::info!("Gap: {:?} filled", gap);
+        }
+    }
     Ok(())
 }
 

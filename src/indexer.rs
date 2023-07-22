@@ -42,9 +42,15 @@ impl Indexer {
         let mut next_bounds = bounds;
         loop {
             let before = Instant::now();
-            let response = chainweb_client::get_block_headers_branches(chain, &next_bounds, &None)
-                .await
-                .unwrap();
+            let response = chainweb_client::get_block_headers_branches(
+                chain,
+                &next_bounds,
+                &None,
+                &None,
+                &None,
+            )
+            .await
+            .unwrap();
             match response.items[..] {
                 [] => return Ok(()),
                 _ => {
@@ -120,7 +126,7 @@ impl Indexer {
         bounds
     }
 
-    async fn process_headers(
+    pub async fn process_headers(
         &self,
         headers: Vec<BlockHeader>,
         chain_id: &ChainId,

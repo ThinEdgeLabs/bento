@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         indexer.backfill().await?;
     } else if gaps {
         log::info!("Filling gaps...");
-        gaps::fill_gaps(&blocks).await?;
+        gaps::fill_gaps(&blocks, &indexer).await?;
     } else {
         log::info!("Indexing blocks...");
         indexer.listen_headers_stream().await?;
