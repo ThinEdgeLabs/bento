@@ -4,6 +4,7 @@ use futures::{stream, StreamExt};
 
 use crate::chainweb_client::{self, Bounds, ChainId, Hash};
 use crate::indexer::Indexer;
+use crate::models::Block;
 use crate::{db::DbError, repository::BlocksRepository};
 
 pub async fn fill_gaps(
@@ -15,41 +16,34 @@ pub async fn fill_gaps(
     let gaps = cut
         .hashes
         .iter()
-        .map(|(chain, last_block_hash)| {
+        .map(|(chain, _)| {
             let gaps = find_gaps(&chain, blocks_repo).unwrap();
             let missing_blocks = gaps
                 .iter()
-                .map(|gap| gap.1 - gap.0 - 1)
+                .map(|gap| gap.1.height - gap.0.height - 1)
                 .reduce(|acc, e| acc + e)
-                .unwrap();
+                .unwrap_or(0);
             log::info!("Chain {}, is missing {} blocks.", chain, missing_blocks);
-            let bounds = Bounds {
-                lower: vec![],
-                upper: vec![Hash(last_block_hash.hash.clone())],
-            };
-            (chain, bounds, gaps)
+            (chain, gaps)
         })
-        .collect::<Vec<(&ChainId, Bounds, Vec<(i64, i64)>)>>();
+        .collect::<Vec<(&ChainId, Vec<(Block, Block)>)>>();
 
     for el in gaps {
-        let (chain, bounds, gaps) = el;
+        let (chain, gaps) = el;
         log::info!("Filling {} gaps for chain: {:?}", gaps.len(), chain);
         gaps.iter()
-            .for_each(|e| log::info!("Gap: {:?}, size: {}", e, e.1 - e.0 - 1));
+            .for_each(|e| log::info!("Gap: {:?}, size: {}", e, e.1.height - e.0.height - 1));
         stream::iter(gaps)
-            .map(|gap| (chain.clone(), bounds.clone(), gap))
-            .map(|(chain, bounds, gap)| async move {
-                let response = chainweb_client::get_block_headers_branches(
-                    &chain,
-                    &bounds,
-                    &None,
-                    &Some(gap.0 as u64),
-                    &Some(gap.1 as u64),
-                )
-                .await
-                .unwrap();
-                log::info!("Filling gap: {:?}", gap);
-                indexer.process_headers(response.items, &chain).await
+            .map(|(lower_bound, upper_bound)| async move {
+                indexer
+                    .index_chain(
+                        Bounds {
+                            lower: vec![Hash(lower_bound.hash.clone())],
+                            upper: vec![Hash(upper_bound.hash.clone())],
+                        },
+                        &chain,
+                    )
+                    .await
             })
             .buffer_unordered(4)
             .for_each(|result| {
@@ -68,7 +62,7 @@ pub async fn fill_gaps(
 pub fn find_gaps(
     chain_id: &ChainId,
     repository: &BlocksRepository,
-) -> Result<Vec<(i64, i64)>, DbError> {
+) -> Result<Vec<(Block, Block)>, DbError> {
     let count = repository.count(chain_id.0 as i64).unwrap();
     if count == 0 {
         return Ok(vec![]);
@@ -108,11 +102,11 @@ fn find_gaps_in_range(
     max_height: i64,
     chain: i64,
     repository: &BlocksRepository,
-) -> Result<Vec<(i64, i64)>, DbError> {
+) -> Result<Vec<(Block, Block)>, DbError> {
     let batch_size = 100;
     let mut max_height = max_height;
-    let mut gaps: Vec<(i64, i64)> = vec![];
-    let mut last_height = None;
+    let mut gaps: Vec<(Block, Block)> = vec![];
+    let mut last_block = None;
     loop {
         if max_height <= min_height {
             return Ok(gaps);
@@ -122,21 +116,21 @@ fn find_gaps_in_range(
             max_height -= batch_size;
             continue;
         }
-        let mut previous_height = if last_height.is_none() {
-            blocks.last().unwrap().height
+        let mut previous_block = if last_block.is_none() {
+            blocks.last().unwrap().clone()
         } else {
-            last_height.unwrap()
+            last_block.unwrap()
         };
 
         for block in blocks.iter() {
-            if previous_height - block.height > 1 {
-                gaps.push((block.height, previous_height));
+            if previous_block.height - block.height > 1 {
+                gaps.push((block.clone(), previous_block));
             }
-            previous_height = block.height;
+            previous_block = block.clone();
         }
 
         max_height -= batch_size;
-        last_height = Some(previous_height);
+        last_block = Some(previous_block);
     }
 }
 
@@ -208,7 +202,14 @@ mod tests {
                 make_block(0, 10),
             ])
             .unwrap();
-        assert!(find_gaps(&ChainId(0), &blocks).is_ok_and(|gaps| gaps == vec![(5, 9), (2, 4)]));
+        let gaps = find_gaps(&ChainId(0), &blocks);
+        assert!(gaps.is_ok());
+        let gaps_heights = gaps
+            .unwrap()
+            .iter()
+            .map(|(a, b)| (a.height, b.height))
+            .collect::<Vec<_>>();
+        assert!(gaps_heights == vec![(5, 9), (2, 4)]);
     }
 
     #[test]
@@ -231,7 +232,12 @@ mod tests {
             .unwrap();
 
         let chain = ChainId(0);
-        assert!(find_gaps_in_range(0, 10, chain.0 as i64, &blocks)
-            .is_ok_and(|gaps| gaps == vec![(8, 10), (6, 8), (2, 4)]));
+        let gaps = find_gaps_in_range(0, 10, chain.0 as i64, &blocks);
+        let gaps_heights = gaps
+            .unwrap()
+            .iter()
+            .map(|(a, b)| (a.height, b.height))
+            .collect::<Vec<_>>();
+        assert!(gaps_heights == vec![(8, 10), (6, 8), (2, 4)]);
     }
 }
