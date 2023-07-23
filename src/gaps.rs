@@ -102,7 +102,7 @@ pub fn find_gaps(
             let no_gaps = if min_block.height == 0 {
                 (max_block.height + 1) == count
             } else {
-                (max_block.height - min_block.height + 1) == 0
+                (max_block.height - min_block.height + 1) == count
             };
             if !no_gaps {
                 find_gaps_in_range(
