@@ -1,5 +1,6 @@
 use bigdecimal::BigDecimal;
 use chrono::NaiveDateTime;
+use core::panic;
 use futures::stream;
 use futures::StreamExt;
 use serde_json::Value;
@@ -230,15 +231,18 @@ impl Indexer {
         let tx_results = fetch_transactions_results(&request_keys[..], chain_id).await?;
         log::info!("Elapsed time to get results: {:.2?}", before.elapsed());
         let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
-        let before = Instant::now();
-        let before_len = txs.len();
+        txs.iter().for_each(|tx| {
+            if tx.block != block.hash {
+                log::error!(
+                    "Transaction block hash does not match header hash, tx: {:#?}",
+                    tx,
+                );
+            }
+        });
         let txs = txs
             .into_iter()
             .filter(|tx| tx.block == block.hash)
             .collect::<Vec<Transaction>>();
-        if before_len != txs.len() {
-            log::error!("Some transactions were filtered out");
-        }
         match self.transactions.insert_batch(&txs) {
             Ok(inserted) => {
                 if inserted > 0 {
@@ -247,9 +251,7 @@ impl Indexer {
             }
             Err(e) => panic!("Error inserting transactions: {:#?}", e),
         }
-        log::info!("Elapsed time to insert txs: {:.2?}", before.elapsed());
         let events = get_events_from_txs(&tx_results, &signed_txs_by_hash);
-        let before = Instant::now();
         match self.events.insert_batch(&events) {
             Ok(inserted) => {
                 if inserted > 0 {
@@ -258,7 +260,6 @@ impl Indexer {
             }
             Err(e) => panic!("Error inserting events: {:#?}", e),
         }
-        log::info!("Elapsed time to insert events: {:.2?}", before.elapsed());
         Ok(())
     }
 
@@ -354,10 +355,17 @@ impl Indexer {
                         .unwrap();
                     self.events.delete_all_by_block(&orphan.hash).unwrap();
                     self.transactions.delete_all_by_block(&orphan.hash).unwrap();
-                    self.blocks
+                    let deleted = self
+                        .blocks
                         .delete_by_hash(&orphan.hash, orphan.chain_id)
                         .unwrap();
-                    self.blocks.insert(&block)
+                    log::info!(
+                        "Deleted {} orphan blocks. Hash {}, chain {}",
+                        deleted,
+                        &orphan.hash,
+                        orphan.chain_id
+                    );
+                    self.blocks.insert(block)
                 }
                 _ => Err(e),
             },

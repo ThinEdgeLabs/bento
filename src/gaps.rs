@@ -70,15 +70,28 @@ pub fn find_gaps(
     chain_id: &ChainId,
     repository: &BlocksRepository,
 ) -> Result<Vec<(Block, Block)>, DbError> {
+    let before = std::time::Instant::now();
     let count = repository.count(chain_id.0 as i64).unwrap();
+    log::info!(
+        "Counted {} blocks for chain {} in {} ms",
+        count,
+        chain_id.0,
+        before.elapsed().as_millis()
+    );
     if count == 0 {
         return Ok(vec![]);
     }
+    let before = std::time::Instant::now();
     match repository
         .find_min_max_height_blocks(chain_id.0 as i64)
         .unwrap()
     {
         (Some(min_block), Some(max_block)) => {
+            log::info!(
+                "Found min and max blocks for chain {} in {} ms",
+                chain_id.0,
+                before.elapsed().as_millis()
+            );
             // Chains 0-9 have height 0 for genesis block, 10 to 19 were added later (height 852054)
             let no_gaps = if min_block.height == 0 {
                 max_block.height + 1 == count
