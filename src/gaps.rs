@@ -100,9 +100,9 @@ pub fn find_gaps(
             );
             // Chains 0-9 have height 0 for genesis block, 10 to 19 were added later (height 852054)
             let no_gaps = if min_block.height == 0 {
-                max_block.height + 1 == count
+                (max_block.height + 1) == count
             } else {
-                max_block.height - min_block.height + 1 == 0
+                (max_block.height - min_block.height + 1) == 0
             };
             if !no_gaps {
                 find_gaps_in_range(
