@@ -92,6 +92,12 @@ pub fn find_gaps(
                 chain_id.0,
                 before.elapsed().as_millis()
             );
+            log::info!(
+                "Min block: {}, max block: {}, count: {}",
+                min_block.height,
+                max_block.height,
+                count
+            );
             // Chains 0-9 have height 0 for genesis block, 10 to 19 were added later (height 852054)
             let no_gaps = if min_block.height == 0 {
                 max_block.height + 1 == count
