@@ -4,6 +4,7 @@ use bento::indexer::*;
 use bento::repository::*;
 use dotenvy::dotenv;
 use std::env;
+use std::process;
 
 /// List of available commands:
 /// - `cargo run --bin indexer` - index blocks from current height
@@ -31,10 +32,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     let backfill = args.contains(&"--backfill".to_string());
     let gaps = args.contains(&"--gaps".to_string());
+    let backfill_range = args.contains(&"--backfill-range".to_string());
 
     if backfill {
         log::info!("Backfilling blocks...");
         indexer.backfill().await?;
+    } else if backfill_range {
+        if args.len() < 5 {
+            log::error!("Not enough arguments for backfill-range.");
+            log::info!("Usage: cargo run --bin indexer -- --backfill-range <min-height> <max-height> <chain-id>");
+            process::exit(1);
+        }
+        let min_height = args[2].parse::<i64>().unwrap();
+        let max_height = args[3].parse::<i64>().unwrap();
+        let chain_id = args[4].parse::<i64>().unwrap();
+        indexer
+            .backfill_range(min_height, max_height, chain_id)
+            .await?;
     } else if gaps {
         log::info!("Filling gaps...");
         gaps::fill_gaps(&blocks, &indexer).await?;

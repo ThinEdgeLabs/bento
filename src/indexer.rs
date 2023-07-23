@@ -37,20 +37,50 @@ impl Indexer {
         Ok(())
     }
 
+    pub async fn backfill_range(
+        &self,
+        min_height: i64,
+        max_height: i64,
+        chain: i64,
+    ) -> Result<(), Box<dyn Error>> {
+        let cut = chainweb_client::get_cut().await.unwrap();
+        let latest_block_hash = cut
+            .hashes
+            .get(&ChainId(chain as u16))
+            .unwrap()
+            .hash
+            .to_string();
+        let bounds = Bounds {
+            lower: vec![],
+            upper: vec![Hash(latest_block_hash)],
+        };
+        let chain_id = ChainId(chain as u16);
+        let headers = chainweb_client::get_block_headers_branches(
+            &chain_id,
+            &bounds,
+            &None,
+            Some(min_height as u64),
+            Some(max_height as u64),
+        )
+        .await?;
+        //log::info!("{:#?}", headers);
+        let bounds = Bounds {
+            lower: vec![Hash(headers.items.last().unwrap().hash.to_string())],
+            upper: vec![Hash(headers.items.first().unwrap().hash.to_string())],
+        };
+        self.index_chain(bounds, &chain_id).await?;
+        Ok(())
+    }
+
     pub async fn index_chain(&self, bounds: Bounds, chain: &ChainId) -> Result<(), Box<dyn Error>> {
         log::info!("Indexing chain: {}, bounds: {:?}", chain.0, bounds);
         let mut next_bounds = bounds;
         loop {
             let before = Instant::now();
-            let response = chainweb_client::get_block_headers_branches(
-                chain,
-                &next_bounds,
-                &None,
-                &None,
-                &None,
-            )
-            .await
-            .unwrap();
+            let response =
+                chainweb_client::get_block_headers_branches(chain, &next_bounds, &None, None, None)
+                    .await
+                    .unwrap();
             match response.items[..] {
                 [] => return Ok(()),
                 _ => {
@@ -150,6 +180,8 @@ impl Indexer {
         let request_keys: Vec<String> = signed_txs_by_hash.keys().map(|e| e.to_string()).collect();
         let tx_results = fetch_transactions_results(&request_keys[..], chain_id).await?;
         let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
+        //TODO: Filter out if there are any txs where the block hash is not the same as the hash of the block
+        //that we inserted above
         if txs.len() > 0 {
             match self.transactions.insert_batch(&txs) {
                 Ok(inserted) => log::info!("Inserted {} transactions", inserted),
@@ -192,11 +224,21 @@ impl Indexer {
             }
             Ok(block) => block,
         };
-
         let signed_txs_by_hash = get_signed_txs_from_payload(&payloads[0]);
         let request_keys: Vec<String> = signed_txs_by_hash.keys().map(|e| e.to_string()).collect();
+        let before = Instant::now();
         let tx_results = fetch_transactions_results(&request_keys[..], chain_id).await?;
+        log::info!("Elapsed time to get results: {:.2?}", before.elapsed());
         let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
+        let before = Instant::now();
+        let before_len = txs.len();
+        let txs = txs
+            .into_iter()
+            .filter(|tx| tx.block == block.hash)
+            .collect::<Vec<Transaction>>();
+        if before_len != txs.len() {
+            log::error!("Some transactions were filtered out");
+        }
         match self.transactions.insert_batch(&txs) {
             Ok(inserted) => {
                 if inserted > 0 {
@@ -205,8 +247,9 @@ impl Indexer {
             }
             Err(e) => panic!("Error inserting transactions: {:#?}", e),
         }
-
+        log::info!("Elapsed time to insert txs: {:.2?}", before.elapsed());
         let events = get_events_from_txs(&tx_results, &signed_txs_by_hash);
+        let before = Instant::now();
         match self.events.insert_batch(&events) {
             Ok(inserted) => {
                 if inserted > 0 {
@@ -215,6 +258,7 @@ impl Indexer {
             }
             Err(e) => panic!("Error inserting events: {:#?}", e),
         }
+        log::info!("Elapsed time to insert events: {:.2?}", before.elapsed());
         Ok(())
     }
 
@@ -234,7 +278,7 @@ impl Indexer {
                                     serde_json::from_str(&ev.data).unwrap();
                                 let chain_id = block_header_event.header.chain_id.clone();
                                 log::info!(
-                                    "Received chain {} header at height {}",
+                                    "Chain {} header, height {} received",
                                     chain_id,
                                     block_header_event.header.height
                                 );
@@ -242,7 +286,13 @@ impl Indexer {
                                     .process_header(&block_header_event.header, &chain_id)
                                     .await
                                 {
-                                    Ok(_) => {}
+                                    Ok(_) => {
+                                        log::info!(
+                                            "Chain {} header, height {} processed",
+                                            chain_id,
+                                            block_header_event.header.height,
+                                        );
+                                    }
                                     Err(e) => log::error!("Error processing headers: {:#?}", e),
                                 }
                             }
@@ -477,8 +527,8 @@ pub async fn fetch_transactions_results(
     request_keys: &[String],
     chain: &ChainId,
 ) -> Result<Vec<PactTransactionResult>, Box<dyn Error>> {
-    let transactions_per_request = 10;
-    let concurrent_requests = 40;
+    let transactions_per_request = 30;
+    let concurrent_requests = 8;
     let mut results: Vec<PactTransactionResult> = vec![];
 
     //TODO: Try to use tokio::StreamExt instead or figure out a way to return a Result

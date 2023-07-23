@@ -316,8 +316,8 @@ pub async fn get_block_headers_branches(
     chain: &ChainId,
     bounds: &Bounds,
     next: &Option<String>,
-    min_height: &Option<u64>,
-    max_height: &Option<u64>,
+    min_height: Option<u64>,
+    max_height: Option<u64>,
 ) -> Result<BlockHeaderResponse, Box<dyn Error>> {
     let endpoint = format!("/chain/{chain}/header/branch");
     let mut url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();

@@ -12,7 +12,6 @@ pub async fn fill_gaps(
     indexer: &Indexer,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let cut = chainweb_client::get_cut().await.unwrap();
-
     let gaps = cut
         .hashes
         .iter()
@@ -31,8 +30,14 @@ pub async fn fill_gaps(
     for el in gaps {
         let (chain, gaps) = el;
         log::info!("Filling {} gaps for chain: {:?}", gaps.len(), chain);
-        gaps.iter()
-            .for_each(|e| log::info!("Gap: {:?}, size: {}", e, e.1.height - e.0.height - 1));
+        gaps.iter().for_each(|e| {
+            log::info!(
+                "Gap: {} - {}, size: {}",
+                e.0.height,
+                e.1.height,
+                e.1.height - e.0.height - 1
+            )
+        });
         stream::iter(gaps)
             .map(|(lower_bound, upper_bound)| async move {
                 indexer
@@ -58,7 +63,9 @@ pub async fn fill_gaps(
     Ok(())
 }
 
-#[allow(dead_code)]
+/// Check if there are any gaps in the blocks table
+/// by comparing number of blocks with the difference between max and min height
+/// If there are gaps, find them and return a list of tuples (lower_bound, upper_bound)
 pub fn find_gaps(
     chain_id: &ChainId,
     repository: &BlocksRepository,
@@ -95,8 +102,7 @@ pub fn find_gaps(
 
 /// Start from max height and go backwards
 /// Query blocks in batches and look for gaps
-/// Once a gap is found continue looking for gaps in the remaining blocks by checking if there are any in the first place
-/// And then finding them
+/// Return a list of tuples (lower_bound, upper_bound)
 fn find_gaps_in_range(
     min_height: i64,
     max_height: i64,
