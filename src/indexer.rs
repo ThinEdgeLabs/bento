@@ -252,6 +252,10 @@ impl Indexer {
             Err(e) => panic!("Error inserting transactions: {:#?}", e),
         }
         let events = get_events_from_txs(&tx_results, &signed_txs_by_hash);
+        let events = events
+            .into_iter()
+            .filter(|e| e.block == block.hash)
+            .collect::<Vec<Event>>();
         match self.events.insert_batch(&events) {
             Ok(inserted) => {
                 if inserted > 0 {
