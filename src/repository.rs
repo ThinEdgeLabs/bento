@@ -251,42 +251,68 @@ impl TransactionsRepository {
     }
 
     #[allow(dead_code)]
-    pub fn find_by_request_key(&self, request_key: &str) -> Result<Option<Transaction>, DbError> {
+    pub fn find_by_request_key(
+        &self,
+        request_keys: &Vec<String>,
+    ) -> Result<Vec<Transaction>, DbError> {
         use crate::schema::transactions::dsl::{
             request_key as request_key_column, transactions as transactions_table,
         };
         let mut conn = self.pool.get().unwrap();
         let result = transactions_table
-            .filter(request_key_column.eq(request_key))
-            //.filter(chain_id_column.eq(chain_id))
+            .filter(request_key_column.eq_any(request_keys))
             .select(Transaction::as_select())
-            .first::<Transaction>(&mut conn)
-            .optional()?;
+            .load(&mut conn)?;
         Ok(result)
     }
 
     #[allow(dead_code)]
-    pub fn find_all_related(&self, request_key: &str) -> Result<Vec<Transaction>, DbError> {
-        match self.find_by_request_key(request_key) {
-            Ok(Some(transaction)) => match transaction.pact_id {
-                Some(ref pact_id) => self.find_by_pact_id(pact_id),
-                None => Ok(vec![transaction]),
-            },
-            Ok(None) => Ok(vec![]),
+    pub fn find_all_related(
+        &self,
+        request_keys: &Vec<String>,
+    ) -> Result<Vec<Vec<Transaction>>, DbError> {
+        use itertools::Itertools;
+        match self.find_by_request_key(request_keys) {
+            Ok(transactions) => {
+                let pact_ids = transactions
+                    .iter()
+                    .filter_map(|e| e.pact_id.clone())
+                    .collect::<Vec<String>>();
+                match self.find_by_pact_id(&pact_ids) {
+                    Ok(multi_step_txs) => {
+                        let mut single_step_txs = transactions
+                            .iter()
+                            .filter(|e| e.pact_id.is_none())
+                            .map(|e| vec![e.clone()])
+                            .collect::<Vec<Vec<Transaction>>>();
+                        let multi_step_txs_by_pact_id = multi_step_txs
+                            .into_iter()
+                            .filter(|e| e.pact_id.is_some())
+                            .group_by(|e| e.pact_id.clone().unwrap());
+                        let mut multi_step_txs = Vec::new();
+                        for (_, group) in &multi_step_txs_by_pact_id {
+                            multi_step_txs.push(group.collect::<Vec<Transaction>>());
+                        }
+                        single_step_txs.append(&mut multi_step_txs);
+                        Ok(single_step_txs)
+                    }
+                    Err(err) => Err(err),
+                }
+            }
             Err(err) => Err(err),
         }
     }
 
     #[allow(dead_code)]
-    pub fn find_by_pact_id(&self, pact_id: &str) -> Result<Vec<Transaction>, DbError> {
+    pub fn find_by_pact_id(&self, pact_ids: &Vec<String>) -> Result<Vec<Transaction>, DbError> {
         use crate::schema::transactions::dsl::{
             pact_id as pact_id_column, transactions as transactions_table,
         };
         let mut conn = self.pool.get().unwrap();
         let result = transactions_table
-            .filter(pact_id_column.eq(pact_id))
+            .filter(pact_id_column.eq_any(pact_ids))
             .select(Transaction::as_select())
-            .load::<Transaction>(&mut conn)?;
+            .load(&mut conn)?;
         Ok(result)
     }
 

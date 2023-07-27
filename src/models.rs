@@ -40,7 +40,7 @@ pub struct Event {
     pub request_key: String,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::transactions)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[derive(Serialize)]
