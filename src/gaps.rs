@@ -188,9 +188,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fill_gaps() {}
-
-    #[test]
     fn test_find_gaps_returns_an_empty_vec_if_no_gaps_were_found() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();

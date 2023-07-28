@@ -2,6 +2,7 @@ use crate::db::DbError;
 
 use super::db::DbPool;
 use super::models::*;
+use bigdecimal::BigDecimal;
 use diesel::prelude::*;
 
 #[derive(Clone)]
@@ -104,7 +105,6 @@ impl BlocksRepository {
         Ok(count)
     }
 
-    #[allow(dead_code)]
     pub fn insert(&self, block: &Block) -> Result<Block, DbError> {
         use crate::schema::blocks::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -126,7 +126,6 @@ impl BlocksRepository {
         Ok(inserted)
     }
 
-    #[allow(dead_code)]
     pub fn delete_all(&self) -> Result<usize, diesel::result::Error> {
         use crate::schema::blocks::dsl::*;
         let mut conn = self.pool.get().unwrap();
@@ -171,15 +170,43 @@ pub struct EventsRepository {
 
 impl EventsRepository {
     #[allow(dead_code)]
-    pub fn find_all(&self) -> Result<Vec<Event>, diesel::result::Error> {
+    pub fn find_all(&self) -> Result<Vec<Event>, DbError> {
         use crate::schema::events::dsl::*;
         let mut conn = self.pool.get().unwrap();
         let results = events.select(Event::as_select()).load::<Event>(&mut conn)?;
         Ok(results)
     }
 
+    pub fn find_max_height(&self, chain_id: i64) -> Result<i64, DbError> {
+        use crate::schema::events::dsl::{chain_id as chain_id_col, events, height as height_col};
+        let mut conn = self.pool.get().unwrap();
+        let max_height = events
+            .filter(chain_id_col.eq(chain_id))
+            .select(diesel::dsl::max(height_col))
+            .first::<Option<i64>>(&mut conn)?;
+        Ok(max_height.unwrap_or(0))
+    }
+
+    pub fn find_by_range(
+        &self,
+        min_height: i64,
+        max_height: i64,
+        chain_id: i64,
+    ) -> Result<Vec<Event>, DbError> {
+        use crate::schema::events::dsl::{chain_id as chain_id_col, events, height as height_col};
+        let mut conn = self.pool.get().unwrap();
+        let results = events
+            .filter(chain_id_col.eq(chain_id))
+            .filter(height_col.ge(min_height))
+            .filter(height_col.le(max_height))
+            .select(Event::as_select())
+            .order(height_col.asc())
+            .load::<Event>(&mut conn)?;
+        Ok(results)
+    }
+
     #[allow(dead_code)]
-    pub fn insert(&self, event: &Event) -> Result<Event, diesel::result::Error> {
+    pub fn insert(&self, event: &Event) -> Result<Event, DbError> {
         use crate::schema::events::dsl::*;
         let mut conn = self.pool.get().unwrap();
         let new_event = diesel::insert_into(events)
@@ -367,6 +394,72 @@ impl TransactionsRepository {
                 .filter(request_key_column.eq(request_key)),
         )
         .execute(&mut conn)?;
+        Ok(deleted)
+    }
+}
+
+pub struct BalancesRepository {
+    pub pool: DbPool,
+}
+
+impl BalancesRepository {
+    pub fn find_by_account_chain_and_qual_name(
+        &self,
+        account: &str,
+        chain_id: i64,
+        qual_name: &str,
+    ) -> Result<Option<Balance>, DbError> {
+        use crate::schema::balances::dsl::{
+            account as account_col, balances, chain_id as chain_id_col, qual_name as qual_name_col,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let result = balances
+            .filter(account_col.eq(account))
+            .filter(chain_id_col.eq(chain_id))
+            .filter(qual_name_col.eq(qual_name))
+            .select(Balance::as_select())
+            .first::<Balance>(&mut conn)
+            .optional()?;
+        Ok(result)
+    }
+
+    pub fn find_by_account(&self, account: &str) -> Result<Vec<Balance>, DbError> {
+        use crate::schema::balances::dsl::{account as account_col, balances};
+        let mut conn = self.pool.get().unwrap();
+        let results = balances
+            .filter(account_col.eq(account))
+            .select(Balance::as_select())
+            .load::<Balance>(&mut conn)?;
+        Ok(results)
+    }
+
+    pub fn insert(&self, balance: &Balance) -> Result<Balance, DbError> {
+        use crate::schema::balances::dsl::*;
+        let mut conn = self.pool.get().unwrap();
+        let new_balance = diesel::insert_into(balances)
+            .values(balance)
+            .returning(Balance::as_returning())
+            .get_result(&mut conn)?;
+        Ok(new_balance)
+    }
+
+    pub fn update(&self, balance: &Balance) -> Result<Balance, DbError> {
+        use crate::schema::balances::dsl::*;
+        let mut conn = self.pool.get().unwrap();
+        let updated_balance = diesel::update(balances)
+            .filter(account.eq(&balance.account))
+            .filter(chain_id.eq(balance.chain_id))
+            .filter(qual_name.eq(&balance.qual_name))
+            .set(amount.eq(&balance.amount))
+            .returning(Balance::as_returning())
+            .get_result(&mut conn)?;
+        Ok(updated_balance)
+    }
+
+    pub fn delete_all(&self) -> Result<usize, DbError> {
+        use crate::schema::balances::dsl::*;
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(balances).execute(&mut conn)?;
         Ok(deleted)
     }
 }
