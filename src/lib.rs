@@ -1,4 +1,5 @@
-pub mod chainweb_client;
+pub mod balance;
+mod chainweb_client;
 pub mod db;
 pub mod gaps;
 pub mod indexer;

@@ -1,3 +1,4 @@
+use bento::balance;
 use bento::db;
 use bento::gaps;
 use bento::indexer::*;
@@ -9,7 +10,8 @@ use std::process;
 /// List of available commands:
 /// - `cargo run --bin indexer` - index blocks from current height
 /// - `cargo run --bin indexer -- --backfill` - index all blocks from current height to genesis
-///TODO: - `cargo run --bin indexer -- --gaps` - fill gaps
+/// - `cargo run --bin indexer -- --gaps` - fill gaps
+/// - `cargo run --bin indexer -- --balances` - calculate balances
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
@@ -22,6 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let blocks = BlocksRepository { pool: pool.clone() };
     let events = EventsRepository { pool: pool.clone() };
     let transactions = TransactionsRepository { pool: pool.clone() };
+    let balances = BalancesRepository { pool: pool.clone() };
 
     let indexer = Indexer {
         blocks: blocks.clone(),
@@ -33,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backfill = args.contains(&"--backfill".to_string());
     let gaps = args.contains(&"--gaps".to_string());
     let backfill_range = args.contains(&"--backfill-range".to_string());
+    let calculate_balances = args.contains(&"--balances".to_string());
 
     if backfill {
         log::info!("Backfilling blocks...");
@@ -52,6 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if gaps {
         log::info!("Filling gaps...");
         gaps::fill_gaps(&blocks, &indexer).await?;
+    } else if calculate_balances {
+        log::info!("Calculating balances...");
+        balance::calculate_balances(0, 50, &events, &balances).unwrap();
     } else {
         log::info!("Indexing blocks...");
         indexer.listen_headers_stream().await?;

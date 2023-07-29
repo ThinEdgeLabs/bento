@@ -2,7 +2,6 @@ use crate::db::DbError;
 
 use super::db::DbPool;
 use super::models::*;
-use bigdecimal::BigDecimal;
 use diesel::prelude::*;
 
 #[derive(Clone)]
@@ -403,20 +402,20 @@ pub struct BalancesRepository {
 }
 
 impl BalancesRepository {
-    pub fn find_by_account_chain_and_qual_name(
+    pub fn find_by_account_chain_and_module(
         &self,
         account: &str,
         chain_id: i64,
-        qual_name: &str,
+        module: &str,
     ) -> Result<Option<Balance>, DbError> {
         use crate::schema::balances::dsl::{
-            account as account_col, balances, chain_id as chain_id_col, qual_name as qual_name_col,
+            account as account_col, balances, chain_id as chain_id_col, module as module_col,
         };
         let mut conn = self.pool.get().unwrap();
         let result = balances
             .filter(account_col.eq(account))
             .filter(chain_id_col.eq(chain_id))
-            .filter(qual_name_col.eq(qual_name))
+            .filter(module_col.eq(module))
             .select(Balance::as_select())
             .first::<Balance>(&mut conn)
             .optional()?;
