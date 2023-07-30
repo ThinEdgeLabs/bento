@@ -3,6 +3,7 @@ use crate::models::{Balance, Event};
 use crate::repository::{BalancesRepository, EventsRepository};
 use bigdecimal::BigDecimal;
 use std::str::FromStr;
+use std::time::Instant;
 
 /// Loop through events
 /// Parse event
@@ -11,48 +12,38 @@ use std::str::FromStr;
 pub fn calculate_balances(
     chain_id: i64,
     batch_size: i64,
+    starting_height: Option<i64>,
     repository: &EventsRepository,
     balances_repository: &BalancesRepository,
 ) -> Result<(), DbError> {
-    let mut min_height = 0;
+    let mut min_height = match starting_height {
+        Some(height) => height,
+        None => 0,
+    };
     let max_height = repository.find_max_height(chain_id)?;
     loop {
         log::info!("Calculating balances from height: {}", min_height);
         if min_height > max_height {
             break;
         }
+        let before = Instant::now();
         let events = repository.find_by_range(min_height, min_height + batch_size, chain_id)?;
+        log::info!(
+            "Found {} events in {}ms",
+            events.len(),
+            before.elapsed().as_millis()
+        );
         if events.is_empty() {
             min_height += batch_size;
             continue;
         }
-        for event in events {
-            if is_balance_transfer(&event) {
-                let (sender, receiver, amount) = parse_transfer_event(&event);
-                if let Some(sender) = sender {
-                    update_balance(
-                        &sender,
-                        chain_id,
-                        &event.qual_name,
-                        &event.module,
-                        event.height,
-                        amount.clone() * BigDecimal::from(-1),
-                        &balances_repository,
-                    )?;
-                }
-                if let Some(receiver) = receiver {
-                    update_balance(
-                        &receiver,
-                        chain_id,
-                        &event.qual_name,
-                        &event.module,
-                        event.height,
-                        amount,
-                        &balances_repository,
-                    )?;
-                }
-            }
-        }
+        let before = Instant::now();
+        update_balances(&events, balances_repository)?;
+        log::info!(
+            "Processed {} events in {}ms",
+            events.len(),
+            before.elapsed().as_millis(),
+        );
         min_height += batch_size + 1;
     }
     Ok(())
@@ -60,6 +51,37 @@ pub fn calculate_balances(
 
 fn is_balance_transfer(event: &Event) -> bool {
     event.name == "TRANSFER"
+}
+
+fn update_balances(events: &Vec<Event>, repository: &BalancesRepository) -> Result<(), DbError> {
+    for event in events {
+        if is_balance_transfer(&event) {
+            let (sender, receiver, amount) = parse_transfer_event(&event);
+            if let Some(sender) = sender {
+                update_account_balance(
+                    &sender,
+                    event.chain_id,
+                    &event.qual_name,
+                    &event.module,
+                    event.height,
+                    amount.clone() * BigDecimal::from(-1),
+                    repository,
+                )?;
+            }
+            if let Some(receiver) = receiver {
+                update_account_balance(
+                    &receiver,
+                    event.chain_id,
+                    &event.qual_name,
+                    &event.module,
+                    event.height,
+                    amount,
+                    repository,
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn parse_transfer_event(event: &Event) -> (Option<String>, Option<String>, BigDecimal) {
@@ -88,7 +110,7 @@ fn parse_transfer_event(event: &Event) -> (Option<String>, Option<String>, BigDe
     )
 }
 
-pub fn update_balance(
+pub fn update_account_balance(
     account: &str,
     chain_id: i64,
     qual_name: &str,
@@ -115,7 +137,6 @@ pub fn update_balance(
                 amount: change,
                 height,
             };
-            println!("Inserting new balance, {:#?}", balance);
             balances_repository.insert(&balance)
         }
         Err(e) => {
@@ -238,6 +259,7 @@ mod tests {
         calculate_balances(
             chain_id,
             batch_size,
+            None,
             &events_repository,
             &balances_repository,
         )

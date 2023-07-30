@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         gaps::fill_gaps(&blocks, &indexer).await?;
     } else if calculate_balances {
         log::info!("Calculating balances...");
-        balance::calculate_balances(0, 50, &events, &balances).unwrap();
+        balance::calculate_balances(0, 50, None, &events, &balances).unwrap();
     } else {
         log::info!("Indexing blocks...");
         indexer.listen_headers_stream().await?;
