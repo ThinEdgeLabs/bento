@@ -67,16 +67,19 @@ fn parse_transfer_event(event: &Event) -> (Option<String>, Option<String>, BigDe
     let receiver = event.params[1].as_str().unwrap().to_string();
     let amount = match event.params[2].is_number() {
         true => BigDecimal::from_str(&event.params[2].to_string()).unwrap(),
-        false => BigDecimal::from_str(
-            &event.params[2]
-                .as_object()
-                .unwrap()
-                .get("decimal")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-        )
-        .unwrap(),
+        false => match event.params[2].is_object() {
+            true => BigDecimal::from_str(
+                &event.params[2]
+                    .as_object()
+                    .unwrap()
+                    .get("decimal")
+                    .unwrap()
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap_or(BigDecimal::from(0)),
+            false => BigDecimal::from(0),
+        },
     };
     (
         (!sender.is_empty()).then(|| sender),
@@ -302,6 +305,25 @@ mod tests {
         };
         let (_, _, amount) = parse_transfer_event(&event);
         assert!(amount == BigDecimal::from_str("22.230409400000000000000000").unwrap());
+    }
+
+    #[test]
+    fn test_parse_transfer_event_wrong_amount() {
+        let event = Event {
+            block: "block-hash".to_string(),
+            chain_id: 0,
+            height: 0,
+            idx: 0,
+            module: "coin".to_string(),
+            module_hash: "module-hash".to_string(),
+            name: "TRANSFER".to_string(),
+            params: serde_json::json!(["bob", "alice", "wrong-amount"]),
+            param_text: "param-text".to_string(),
+            qual_name: "coin.TRANSFER".to_string(),
+            request_key: "request-key".to_string(),
+        };
+        let (_, _, amount) = parse_transfer_event(&event);
+        assert!(amount == BigDecimal::from(0));
     }
 
     #[test]
