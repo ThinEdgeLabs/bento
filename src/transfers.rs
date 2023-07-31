@@ -1,3 +1,4 @@
+use crate::chainweb_client;
 use crate::db::DbError;
 use crate::models::{Event, Transfer};
 use crate::repository::{EventsRepository, TransfersRepository};
@@ -5,11 +6,30 @@ use bigdecimal::BigDecimal;
 use std::str::FromStr;
 use std::time::Instant;
 
+pub async fn backfill(
+    batch_size: i64,
+    events_repository: &EventsRepository,
+    transfers_repository: &TransfersRepository,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cut = chainweb_client::get_cut().await.unwrap();
+    cut.hashes.iter().for_each(|e| {
+        let chain_id = e.0 .0;
+        log::info!("Backfilling transfers on chain {}...", chain_id);
+        backfill_chain(
+            chain_id as i64,
+            batch_size,
+            events_repository,
+            transfers_repository,
+        )
+        .unwrap();
+    });
+    Ok(())
+}
 /// Loop through events
 /// Parse event
 /// Check if event is a balance transfer
 /// If it is, insert into transfers table
-pub fn backfill(
+fn backfill_chain(
     chain_id: i64,
     batch_size: i64,
     events_repository: &EventsRepository,
@@ -242,7 +262,7 @@ mod tests {
             .unwrap();
         let chain_id = 0;
         let batch_size = 1;
-        backfill(
+        backfill_chain(
             chain_id,
             batch_size,
             &events_repository,
