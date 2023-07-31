@@ -11,6 +11,7 @@ use std::time::Instant;
 use std::vec;
 
 use crate::db::DbError;
+use crate::transfers;
 
 use super::chainweb_client;
 use super::chainweb_client::{
@@ -24,6 +25,7 @@ pub struct Indexer {
     pub blocks: BlocksRepository,
     pub events: EventsRepository,
     pub transactions: TransactionsRepository,
+    pub transfers: TransfersRepository,
 }
 
 impl Indexer {
@@ -64,7 +66,6 @@ impl Indexer {
             Some(max_height as u64),
         )
         .await?;
-        //log::info!("{:#?}", headers);
         let bounds = Bounds {
             lower: vec![Hash(headers.items.last().unwrap().hash.to_string())],
             upper: vec![Hash(headers.items.first().unwrap().hash.to_string())],
@@ -191,7 +192,13 @@ impl Indexer {
             let events = get_events_from_txs(&tx_results, &signed_txs_by_hash);
             if events.len() > 0 {
                 match self.events.insert_batch(&events) {
-                    Ok(inserted) => log::info!("Inserted {} events", inserted),
+                    Ok(inserted) => {
+                        log::info!("Inserted {} events", inserted);
+                        match transfers::process_transfers(&events, &self.transfers) {
+                            Ok(_) => {}
+                            Err(e) => panic!("Error updating balances: {:#?}", e),
+                        }
+                    }
                     Err(e) => panic!("Error inserting events: {:#?}", e),
                 }
             }
@@ -259,7 +266,11 @@ impl Indexer {
         match self.events.insert_batch(&events) {
             Ok(inserted) => {
                 if inserted > 0 {
-                    log::info!("Inserted {} events", inserted)
+                    log::info!("Inserted {} events", inserted);
+                    match transfers::process_transfers(&events, &self.transfers) {
+                        Ok(_) => {}
+                        Err(e) => panic!("Error updating balances: {:#?}", e),
+                    }
                 }
             }
             Err(e) => panic!("Error inserting events: {:#?}", e),
@@ -629,15 +640,17 @@ mod tests {
         let blocks = BlocksRepository { pool: pool.clone() };
         let events = EventsRepository { pool: pool.clone() };
         let transactions = TransactionsRepository { pool: pool.clone() };
+        let transfers = TransfersRepository { pool: pool.clone() };
 
         transactions.delete_all().unwrap();
         events.delete_all().unwrap();
         blocks.delete_all().unwrap();
 
         let indexer = Indexer {
-            blocks: blocks,
-            events: events,
-            transactions: transactions,
+            blocks,
+            events,
+            transactions,
+            transfers,
         };
 
         let orphan_header = BlockHeader {

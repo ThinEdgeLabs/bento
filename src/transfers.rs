@@ -1,6 +1,6 @@
 use crate::db::DbError;
-use crate::models::{Balance, Event};
-use crate::repository::{BalancesRepository, EventsRepository};
+use crate::models::{Event, Transfer};
+use crate::repository::{EventsRepository, TransfersRepository};
 use bigdecimal::BigDecimal;
 use std::str::FromStr;
 use std::time::Instant;
@@ -8,43 +8,40 @@ use std::time::Instant;
 /// Loop through events
 /// Parse event
 /// Check if event is a balance transfer
-/// If it is, update balance for sender and receiver
-pub fn calculate_balances(
+/// If it is, insert into transfers table
+pub fn backfill(
     chain_id: i64,
     batch_size: i64,
-    starting_height: Option<i64>,
-    repository: &EventsRepository,
-    balances_repository: &BalancesRepository,
+    events_repository: &EventsRepository,
+    transfers_repository: &TransfersRepository,
 ) -> Result<(), DbError> {
-    let mut min_height = match starting_height {
-        Some(height) => height,
-        None => 0,
-    };
-    let max_height = repository.find_max_height(chain_id)?;
+    let min_height = 0;
+    let mut max_height = events_repository.find_max_height(chain_id)?;
     loop {
-        log::info!("Calculating balances from height: {}", min_height);
-        if min_height > max_height {
+        if max_height <= min_height {
             break;
         }
+        log::info!("Indexing transfers from height: {}", max_height);
         let before = Instant::now();
-        let events = repository.find_by_range(min_height, min_height + batch_size, chain_id)?;
+        let events =
+            events_repository.find_by_range(max_height - batch_size, max_height, chain_id)?;
         log::info!(
             "Found {} events in {}ms",
             events.len(),
             before.elapsed().as_millis()
         );
         if events.is_empty() {
-            min_height += batch_size;
+            max_height -= batch_size;
             continue;
         }
         let before = Instant::now();
-        update_balances(&events, balances_repository)?;
+        process_transfers(&events, transfers_repository)?;
         log::info!(
             "Processed {} events in {}ms",
             events.len(),
             before.elapsed().as_millis(),
         );
-        min_height += batch_size + 1;
+        max_height -= batch_size;
     }
     Ok(())
 }
@@ -53,38 +50,20 @@ fn is_balance_transfer(event: &Event) -> bool {
     event.name == "TRANSFER"
 }
 
-fn update_balances(events: &Vec<Event>, repository: &BalancesRepository) -> Result<(), DbError> {
-    for event in events {
-        if is_balance_transfer(&event) {
-            let (sender, receiver, amount) = parse_transfer_event(&event);
-            if let Some(sender) = sender {
-                update_account_balance(
-                    &sender,
-                    event.chain_id,
-                    &event.qual_name,
-                    &event.module,
-                    event.height,
-                    amount.clone() * BigDecimal::from(-1),
-                    repository,
-                )?;
-            }
-            if let Some(receiver) = receiver {
-                update_account_balance(
-                    &receiver,
-                    event.chain_id,
-                    &event.qual_name,
-                    &event.module,
-                    event.height,
-                    amount,
-                    repository,
-                )?;
-            }
-        }
-    }
+pub fn process_transfers(
+    events: &Vec<Event>,
+    repository: &TransfersRepository,
+) -> Result<(), DbError> {
+    let transfers = events
+        .iter()
+        .filter(|event| is_balance_transfer(event))
+        .map(|event| make_transfer(event))
+        .collect::<Vec<Transfer>>();
+    repository.insert_batch(&transfers)?;
     Ok(())
 }
 
-fn parse_transfer_event(event: &Event) -> (Option<String>, Option<String>, BigDecimal) {
+fn make_transfer(event: &Event) -> Transfer {
     let sender = event.params[0].as_str().unwrap().to_string();
     let receiver = event.params[1].as_str().unwrap().to_string();
     let amount = match event.params[2].is_number() {
@@ -103,48 +82,55 @@ fn parse_transfer_event(event: &Event) -> (Option<String>, Option<String>, BigDe
             false => BigDecimal::from(0),
         },
     };
-    (
-        (!sender.is_empty()).then(|| sender),
-        (!receiver.is_empty()).then(|| receiver),
-        BigDecimal::from(amount),
-    )
-}
-
-pub fn update_account_balance(
-    account: &str,
-    chain_id: i64,
-    qual_name: &str,
-    module: &str,
-    height: i64,
-    change: BigDecimal,
-    balances_repository: &BalancesRepository,
-) -> Result<Balance, DbError> {
-    match balances_repository.find_by_account_chain_and_module(account, chain_id, module) {
-        Ok(Some(balance)) => {
-            let new_balance = Balance {
-                amount: balance.amount + change,
-                height,
-                ..balance
-            };
-            balances_repository.update(&new_balance)
-        }
-        Ok(None) => {
-            let balance = Balance {
-                account: account.to_string(),
-                chain_id,
-                qual_name: qual_name.to_string(),
-                module: module.to_string(),
-                amount: change,
-                height,
-            };
-            balances_repository.insert(&balance)
-        }
-        Err(e) => {
-            log::error!("Error updating balance: {}", e);
-            Err(e)
-        }
+    Transfer {
+        amount: amount,
+        block: event.block.clone(),
+        chain_id: event.chain_id,
+        from_account: sender,
+        height: event.height,
+        idx: event.idx,
+        module_hash: event.module_hash.clone(),
+        module_name: event.module.clone(),
+        request_key: event.request_key.clone(),
+        to_account: receiver,
     }
 }
+
+// pub fn update_account_balance(
+//     account: &str,
+//     chain_id: i64,
+//     qual_name: &str,
+//     module: &str,
+//     height: i64,
+//     change: BigDecimal,
+//     balances_repository: &BalancesRepository,
+// ) -> Result<Balance, DbError> {
+//     match balances_repository.find_by_account_chain_and_module(account, chain_id, module) {
+//         Ok(Some(balance)) => {
+//             let new_balance = Balance {
+//                 amount: balance.amount + change,
+//                 height,
+//                 ..balance
+//             };
+//             balances_repository.update(&new_balance)
+//         }
+//         Ok(None) => {
+//             let balance = Balance {
+//                 account: account.to_string(),
+//                 chain_id,
+//                 qual_name: qual_name.to_string(),
+//                 module: module.to_string(),
+//                 amount: change,
+//                 height,
+//             };
+//             balances_repository.insert(&balance)
+//         }
+//         Err(e) => {
+//             log::error!("Error updating balance: {}", e);
+//             Err(e)
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -156,15 +142,15 @@ mod tests {
     use chrono::Utc;
 
     #[test]
-    fn test_calculate_balances() {
+    fn test_backfill() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
         let blocks_repository = BlocksRepository { pool: pool.clone() };
         let events_repository = EventsRepository { pool: pool.clone() };
-        let balances_repository = BalancesRepository { pool: pool.clone() };
+        let transfers_repository = TransfersRepository { pool: pool.clone() };
         events_repository.delete_all().unwrap();
+        transfers_repository.delete_all().unwrap();
         blocks_repository.delete_all().unwrap();
-        balances_repository.delete_all().unwrap();
         let block = Block {
             chain_id: 0,
             hash: "block-0".to_string(),
@@ -256,29 +242,25 @@ mod tests {
             .unwrap();
         let chain_id = 0;
         let batch_size = 1;
-        calculate_balances(
+        backfill(
             chain_id,
             batch_size,
-            None,
             &events_repository,
-            &balances_repository,
+            &transfers_repository,
         )
         .unwrap();
-        let bob_balance = balances_repository
-            .find_by_account_chain_and_module("bob", 0, "coin")
-            .unwrap()
+        let bob_incoming_transfers = transfers_repository
+            .find_incoming("bob", 0, "coin")
             .unwrap();
-        assert!(bob_balance.amount == BigDecimal::from_str("25.6").unwrap());
-
-        let alice_balance = balances_repository
-            .find_by_account_chain_and_module("alice", 0, "coin")
-            .unwrap()
+        assert!(bob_incoming_transfers.len() == 3);
+        let alice_incoming_transfers = transfers_repository
+            .find_incoming("alice", 0, "coin")
             .unwrap();
-        assert!(alice_balance.amount == BigDecimal::from_str("74.5").unwrap());
+        assert!(alice_incoming_transfers.len() == 1);
     }
 
     #[test]
-    fn test_parse_transfer_event() {
+    fn test_make_transfer() {
         let event = Event {
             block: "block-hash".to_string(),
             chain_id: 0,
@@ -292,22 +274,63 @@ mod tests {
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key".to_string(),
         };
-        let (sender, receiver, amount) = parse_transfer_event(&event);
-        assert_eq!(sender.unwrap(), "bob");
-        assert_eq!(receiver.unwrap(), "alice");
-        assert_eq!(amount, BigDecimal::from_str("100.12324354665567").unwrap());
+        let transfer = make_transfer(&event);
+        assert_eq!(
+            transfer,
+            Transfer {
+                amount: BigDecimal::from_str("100.12324354665567").unwrap(),
+                block: "block-hash".to_string(),
+                chain_id: 0,
+                from_account: "bob".to_string(),
+                height: 0,
+                idx: 0,
+                module_hash: "module-hash".to_string(),
+                module_name: "coin".to_string(),
+                request_key: "request-key".to_string(),
+                to_account: "alice".to_string(),
+            }
+        );
+
         let no_sender_event = Event {
             params: serde_json::json!(["", "alice", 10]),
             ..event.clone()
         };
-        let (sender, _, _) = parse_transfer_event(&no_sender_event);
-        assert!(sender.is_none());
+        let transfer = make_transfer(&no_sender_event);
+        assert_eq!(
+            transfer,
+            Transfer {
+                amount: BigDecimal::from_str("10").unwrap(),
+                block: "block-hash".to_string(),
+                chain_id: 0,
+                from_account: "".to_string(),
+                height: 0,
+                idx: 0,
+                module_hash: "module-hash".to_string(),
+                module_name: "coin".to_string(),
+                request_key: "request-key".to_string(),
+                to_account: "alice".to_string(),
+            }
+        );
         let no_receiver_event = Event {
             params: serde_json::json!(["bob", "", 10]),
             ..event
         };
-        let (_, receiver, _) = parse_transfer_event(&no_receiver_event);
-        assert!(receiver.is_none());
+        let transfer = make_transfer(&no_receiver_event);
+        assert_eq!(
+            transfer,
+            Transfer {
+                amount: BigDecimal::from_str("10").unwrap(),
+                block: "block-hash".to_string(),
+                chain_id: 0,
+                from_account: "bob".to_string(),
+                height: 0,
+                idx: 0,
+                module_hash: "module-hash".to_string(),
+                module_name: "coin".to_string(),
+                request_key: "request-key".to_string(),
+                to_account: "".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -325,12 +348,13 @@ mod tests {
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key".to_string(),
         };
-        let (_, _, amount) = parse_transfer_event(&event);
-        assert!(amount == BigDecimal::from_str("22.230409400000000000000000").unwrap());
+        let transfer = make_transfer(&event);
+        assert!(transfer.amount == BigDecimal::from_str("22.230409400000000000000000").unwrap());
     }
 
     #[test]
-    fn test_parse_transfer_event_wrong_amount() {
+    /// This test is to make sure that if the amount is not a number, we default to 0
+    fn test_make_transfer_when_event_has_string_as_amount() {
         let event = Event {
             block: "block-hash".to_string(),
             chain_id: 0,
@@ -344,8 +368,8 @@ mod tests {
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key".to_string(),
         };
-        let (_, _, amount) = parse_transfer_event(&event);
-        assert!(amount == BigDecimal::from(0));
+        let transfer = make_transfer(&event);
+        assert!(transfer.amount == BigDecimal::from(0));
     }
 
     #[test]

@@ -1,7 +1,11 @@
+use std::collections::HashMap;
+
 use crate::db::DbError;
 
 use super::db::DbPool;
 use super::models::*;
+use bigdecimal::BigDecimal;
+use diesel::dsl::sum;
 use diesel::prelude::*;
 
 #[derive(Clone)]
@@ -397,6 +401,7 @@ impl TransactionsRepository {
     }
 }
 
+#[derive(Clone)]
 pub struct BalancesRepository {
     pub pool: DbPool,
 }
@@ -459,6 +464,188 @@ impl BalancesRepository {
         use crate::schema::balances::dsl::*;
         let mut conn = self.pool.get().unwrap();
         let deleted = diesel::delete(balances).execute(&mut conn)?;
+        Ok(deleted)
+    }
+}
+
+#[derive(Clone)]
+pub struct TransfersRepository {
+    pub pool: DbPool,
+}
+
+impl TransfersRepository {
+    pub fn calculate_balance(
+        &self,
+        account: &str,
+        module: &str,
+    ) -> Result<HashMap<i64, BigDecimal>, DbError> {
+        use crate::schema::transfers::dsl::{
+            amount as amount_col, chain_id as chain_id_col, from_account,
+            module_name as module_name_col, to_account, transfers,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let outgoing_amounts_per_chain = transfers
+            .filter(from_account.eq(account))
+            .filter(module_name_col.eq(module))
+            .group_by(chain_id_col)
+            .select((chain_id_col, sum(amount_col)))
+            .load::<(i64, Option<BigDecimal>)>(&mut conn)?;
+        let outgoing_amounts_per_chain = outgoing_amounts_per_chain
+            .into_iter()
+            .filter(|e| e.1.is_some())
+            .map(|e| (e.0, e.1.unwrap()))
+            .collect::<HashMap<i64, BigDecimal>>();
+        let incoming_amounts_per_chain = transfers
+            .filter(module_name_col.eq(module))
+            .filter(to_account.eq(account))
+            .group_by(chain_id_col)
+            .select((chain_id_col, sum(amount_col)))
+            .load::<(i64, Option<BigDecimal>)>(&mut conn)?;
+        let incoming_amounts_per_chain = incoming_amounts_per_chain
+            .into_iter()
+            .filter(|e| e.1.is_some())
+            .map(|e| (e.0, e.1.unwrap()))
+            .collect::<HashMap<i64, BigDecimal>>();
+        let mut balance: HashMap<i64, BigDecimal> = HashMap::new();
+        for (chain, amount) in &incoming_amounts_per_chain {
+            let outgoing_amount = match outgoing_amounts_per_chain.get(&chain) {
+                Some(amount) => amount.clone(),
+                None => BigDecimal::from(0),
+            };
+            balance.insert(*chain, amount - outgoing_amount);
+        }
+        Ok(balance)
+    }
+
+    pub fn calculate_all_balances(
+        &self,
+        account: &str,
+    ) -> Result<HashMap<String, HashMap<i64, BigDecimal>>, DbError> {
+        use crate::schema::transfers::dsl::{
+            amount as amount_col, chain_id as chain_id_col, from_account,
+            module_name as module_name_col, to_account, transfers,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let outgoing_amounts: Vec<(i64, Option<BigDecimal>, String)> = transfers
+            .filter(from_account.eq(account))
+            .group_by((chain_id_col, module_name_col))
+            .select((chain_id_col, sum(amount_col), module_name_col))
+            .load::<(i64, Option<BigDecimal>, String)>(&mut conn)?;
+        let mut outgoing_amounts_by_module: HashMap<String, HashMap<i64, BigDecimal>> =
+            HashMap::new();
+        outgoing_amounts
+            .into_iter()
+            .filter(|e| e.1.is_some())
+            .for_each(|e| {
+                let (chain, amount, module) = e;
+                let mut outgoing_amounts = match outgoing_amounts_by_module.get(&module) {
+                    Some(amounts) => amounts.clone(),
+                    None => HashMap::new(),
+                };
+                outgoing_amounts.insert(chain, amount.unwrap());
+                outgoing_amounts_by_module.insert(module, outgoing_amounts);
+            });
+        log::info!(
+            "outgoing_amounts_by_module: {:?}",
+            outgoing_amounts_by_module
+        );
+        let incoming_amounts = transfers
+            .filter(to_account.eq(account))
+            .group_by((chain_id_col, module_name_col))
+            .select((chain_id_col, sum(amount_col), module_name_col))
+            .load::<(i64, Option<BigDecimal>, String)>(&mut conn)?;
+        let mut incoming_amounts_by_module: HashMap<String, HashMap<i64, BigDecimal>> =
+            HashMap::new();
+        incoming_amounts
+            .into_iter()
+            .filter(|e| e.1.is_some())
+            .for_each(|e| {
+                let (chain, amount, module) = e;
+                let mut incoming_amounts = match incoming_amounts_by_module.get(&module) {
+                    Some(amounts) => amounts.clone(),
+                    None => HashMap::new(),
+                };
+                incoming_amounts.insert(chain, amount.unwrap());
+                incoming_amounts_by_module.insert(module, incoming_amounts);
+            });
+        log::info!(
+            "incoming_amounts_by_module: {:?}",
+            incoming_amounts_by_module
+        );
+        let mut balances_by_module: HashMap<String, HashMap<i64, BigDecimal>> = HashMap::new();
+        for (module, amounts) in &incoming_amounts_by_module {
+            let mut balance: HashMap<i64, BigDecimal> = HashMap::new();
+            for (chain, amount) in amounts {
+                let outgoing_amount = match outgoing_amounts_by_module.get(module) {
+                    Some(amounts) => match amounts.get(&chain) {
+                        Some(amount) => amount.clone(),
+                        None => BigDecimal::from(0),
+                    },
+                    None => BigDecimal::from(0),
+                };
+                balance.insert(*chain, amount - outgoing_amount);
+            }
+            balances_by_module.insert(module.clone(), balance);
+        }
+        Ok(balances_by_module)
+    }
+
+    pub fn find_incoming(
+        &self,
+        to_account: &str,
+        chain_id: i64,
+        module: &str,
+    ) -> Result<Vec<Transfer>, DbError> {
+        use crate::schema::transfers::dsl::{
+            chain_id as chain_id_col, module_name as module_name_col, to_account as to_account_col,
+            transfers,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let result = transfers
+            .filter(to_account_col.eq(to_account))
+            .filter(chain_id_col.eq(chain_id))
+            .filter(module_name_col.eq(module))
+            .select(Transfer::as_select())
+            .load(&mut conn)?;
+        Ok(result)
+    }
+
+    // pub fn find_by_account(&self, account: &str) -> Result<Vec<Balance>, DbError> {
+    //     use crate::schema::balances::dsl::{account as account_col, balances};
+    //     let mut conn = self.pool.get().unwrap();
+    //     let results = balances
+    //         .filter(account_col.eq(account))
+    //         .select(Balance::as_select())
+    //         .load::<Balance>(&mut conn)?;
+    //     Ok(results)
+    // }
+
+    pub fn insert(&self, transfer: &Transfer) -> Result<Transfer, DbError> {
+        use crate::schema::transfers::dsl::*;
+        let mut conn = self.pool.get().unwrap();
+        let new_transfer = diesel::insert_into(transfers)
+            .values(transfer)
+            .on_conflict_do_nothing()
+            .returning(Transfer::as_returning())
+            .get_result(&mut conn)?;
+        Ok(new_transfer)
+    }
+
+    pub fn insert_batch(&self, transfers: &Vec<Transfer>) -> Result<Vec<Transfer>, DbError> {
+        use crate::schema::transfers::dsl::transfers as transfers_table;
+        let mut conn = self.pool.get().unwrap();
+        let inserted = diesel::insert_into(transfers_table)
+            .values(transfers)
+            .on_conflict_do_nothing()
+            .returning(Transfer::as_returning())
+            .get_results(&mut conn)?;
+        Ok(inserted)
+    }
+
+    pub fn delete_all(&self) -> Result<usize, DbError> {
+        use crate::schema::transfers::dsl::*;
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(transfers).execute(&mut conn)?;
         Ok(deleted)
     }
 }

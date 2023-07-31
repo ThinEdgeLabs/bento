@@ -83,3 +83,20 @@ pub struct Balance {
     pub qual_name: String,
     pub module: String,
 }
+
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq)]
+#[diesel(table_name = crate::schema::transfers)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+#[derive(Serialize)]
+pub struct Transfer {
+    pub amount: BigDecimal,
+    pub block: String,
+    pub chain_id: i64,
+    pub from_account: String,
+    pub height: i64,
+    pub idx: i64,
+    pub module_hash: String,
+    pub module_name: String,
+    pub request_key: String,
+    pub to_account: String,
+}

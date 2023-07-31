@@ -75,12 +75,29 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    transfers (block, chain_id, idx, module_hash, request_key) {
+        amount -> Numeric,
+        block -> Varchar,
+        chain_id -> Int8,
+        from_account -> Varchar,
+        height -> Int8,
+        idx -> Int8,
+        module_hash -> Varchar,
+        module_name -> Varchar,
+        request_key -> Varchar,
+        to_account -> Varchar,
+    }
+}
+
 diesel::joinable!(events -> blocks (block));
 diesel::joinable!(transactions -> blocks (block));
+diesel::joinable!(transfers -> blocks (block));
 
 diesel::allow_tables_to_appear_in_same_query!(
     balances,
     blocks,
     events,
     transactions,
+    transfers,
 );
