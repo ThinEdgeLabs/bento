@@ -648,4 +648,18 @@ impl TransfersRepository {
         let deleted = diesel::delete(transfers).execute(&mut conn)?;
         Ok(deleted)
     }
+
+    pub fn delete_all_by_block(&self, block: &str, chain_id: i64) -> Result<usize, DbError> {
+        use crate::schema::transfers::dsl::{
+            block as block_col, chain_id as chain_id_col, transfers,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let deleted = diesel::delete(
+            transfers
+                .filter(block_col.eq(block))
+                .filter(chain_id_col.eq(chain_id)),
+        )
+        .execute(&mut conn)?;
+        Ok(deleted)
+    }
 }

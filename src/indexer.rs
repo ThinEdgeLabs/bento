@@ -368,6 +368,9 @@ impl Indexer {
                         .find_by_height(block.height, block.chain_id)
                         .unwrap()
                         .unwrap();
+                    self.transfers
+                        .delete_all_by_block(&orphan.hash, orphan.chain_id)
+                        .unwrap();
                     self.events.delete_all_by_block(&orphan.hash).unwrap();
                     self.transactions.delete_all_by_block(&orphan.hash).unwrap();
                     let deleted = self
