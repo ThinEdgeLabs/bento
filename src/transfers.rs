@@ -20,6 +20,7 @@ pub async fn backfill(
             batch_size,
             events_repository,
             transfers_repository,
+            None,
         )
         .unwrap();
     });
@@ -34,9 +35,13 @@ pub fn backfill_chain(
     batch_size: i64,
     events_repository: &EventsRepository,
     transfers_repository: &TransfersRepository,
+    starting_max_height: Option<i64>,
 ) -> Result<(), DbError> {
     let min_height = 0;
-    let mut max_height = events_repository.find_max_height(chain_id)?;
+    let mut max_height = match starting_max_height {
+        Some(value) => value,
+        None => events_repository.find_max_height(chain_id)?,
+    };
     loop {
         if max_height <= min_height {
             break;
@@ -275,6 +280,7 @@ mod tests {
             batch_size,
             &events_repository,
             &transfers_repository,
+            None,
         )
         .unwrap();
         let bob_incoming_transfers = transfers_repository

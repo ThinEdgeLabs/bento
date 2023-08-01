@@ -59,10 +59,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         gaps::fill_gaps(&blocks, &indexer).await?;
     } else if transfers {
         log::info!("Backfilling transfers...");
-        if args.len() == 3 {
+        if args.len() >= 3 {
             let chain_id = args[2].parse::<i64>().unwrap();
+            let mut starting_max_height = None;
+            if args.len() == 4 {
+                starting_max_height = Some(args[3].parse::<i64>().unwrap());
+            }
             log::info!("Chain ID: {}", chain_id);
-            transfers::backfill_chain(chain_id, 50, &events, &transfers_repo).unwrap();
+            transfers::backfill_chain(chain_id, 50, &events, &transfers_repo, starting_max_height)
+                .unwrap();
         } else {
             transfers::backfill(50, &events, &transfers_repo).await?;
         }
