@@ -29,7 +29,7 @@ pub async fn backfill(
 /// Parse event
 /// Check if event is a balance transfer
 /// If it is, insert into transfers table
-fn backfill_chain(
+pub fn backfill_chain(
     chain_id: i64,
     batch_size: i64,
     events_repository: &EventsRepository,
@@ -79,7 +79,15 @@ pub fn process_transfers(
         .filter(|event| is_balance_transfer(event))
         .map(|event| make_transfer(event))
         .collect::<Vec<Transfer>>();
-    repository.insert_batch(&transfers)?;
+    // Number of parameters in one SQL query is limited to 65535, so we need to split the batch
+    if transfers.len() > 6000 {
+        transfers.chunks(1000).for_each(|chunk| {
+            repository.insert_batch(&chunk.to_vec()).unwrap();
+        });
+    } else {
+        repository.insert_batch(&transfers)?;
+    }
+
     Ok(())
 }
 
