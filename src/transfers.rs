@@ -102,19 +102,21 @@ fn make_transfer(event: &Event) -> Transfer {
     let amount = match event.params[2].is_number() {
         true => BigDecimal::from_str(&event.params[2].to_string()).unwrap(),
         false => match event.params[2].is_object() {
-            true => {
-                let value = match &event.params[2].as_object().unwrap().get("decimal") {
-                    Some(number) => number.as_str().unwrap(),
-                    None => &event.params[2]
+            true => match &event.params[2].as_object().unwrap().get("decimal") {
+                Some(number) => {
+                    BigDecimal::from_str(number.as_str().unwrap()).unwrap_or(BigDecimal::from(0))
+                }
+                None => {
+                    let number = &event.params[2]
                         .as_object()
                         .unwrap()
                         .get("int")
                         .unwrap()
-                        .as_str()
-                        .unwrap(),
-                };
-                BigDecimal::from_str(value).unwrap_or(BigDecimal::from(0))
-            }
+                        .as_i64()
+                        .unwrap();
+                    BigDecimal::from(*number)
+                }
+            },
             false => BigDecimal::from(0),
         },
     };
@@ -387,6 +389,21 @@ mod tests {
         };
         let transfer = make_transfer(&event);
         assert!(transfer.amount == BigDecimal::from_str("22.230409400000000000000000").unwrap());
+        let event = Event {
+            block: "block-hash".to_string(),
+            chain_id: 0,
+            height: 0,
+            idx: 0,
+            module: "coin".to_string(),
+            module_hash: "module-hash".to_string(),
+            name: "TRANSFER".to_string(),
+            params: serde_json::json!(["bob", "alice", {"int": 1}]),
+            param_text: "param-text".to_string(),
+            qual_name: "coin.TRANSFER".to_string(),
+            request_key: "request-key".to_string(),
+        };
+        let transfer = make_transfer(&event);
+        assert!(transfer.amount == BigDecimal::from(1));
     }
 
     #[test]
