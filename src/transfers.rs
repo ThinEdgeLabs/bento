@@ -102,16 +102,19 @@ fn make_transfer(event: &Event) -> Transfer {
     let amount = match event.params[2].is_number() {
         true => BigDecimal::from_str(&event.params[2].to_string()).unwrap(),
         false => match event.params[2].is_object() {
-            true => BigDecimal::from_str(
-                &event.params[2]
-                    .as_object()
-                    .unwrap()
-                    .get("decimal")
-                    .unwrap()
-                    .as_str()
-                    .unwrap(),
-            )
-            .unwrap_or(BigDecimal::from(0)),
+            true => {
+                let value = match &event.params[2].as_object().unwrap().get("decimal") {
+                    Some(number) => number.as_str().unwrap(),
+                    None => &event.params[2]
+                        .as_object()
+                        .unwrap()
+                        .get("int")
+                        .unwrap()
+                        .as_str()
+                        .unwrap(),
+                };
+                BigDecimal::from_str(value).unwrap_or(BigDecimal::from(0))
+            }
             false => BigDecimal::from(0),
         },
     };
