@@ -15,14 +15,14 @@ async fn tx(
     transactions: web::Data<TransactionsRepository>,
 ) -> actix_web::Result<impl Responder> {
     let request_key = path.into_inner();
-    let tx: Vec<Vec<Transaction>> =
+    let req_key = request_key.clone();
+    let tx: HashMap<String, Vec<Transaction>> =
         web::block(move || transactions.find_all_related(&vec![request_key]))
             .await?
             .map_err(error::ErrorInternalServerError)?;
-
-    Ok(match tx[..] {
-        [] => HttpResponse::NotFound().body("Tx not found"),
-        _ => HttpResponse::Ok().json(tx.first().unwrap()),
+    Ok(match tx.contains_key(&req_key) {
+        false => HttpResponse::NotFound().body("Tx not found"),
+        true => HttpResponse::Ok().json(tx.get(&req_key).unwrap()),
     })
 }
 
@@ -36,15 +36,12 @@ async fn txs(
     body: web::Json<RequestKeys>,
     transactions: web::Data<TransactionsRepository>,
 ) -> actix_web::Result<impl Responder> {
-    let result: Vec<Vec<Transaction>> =
+    let result: HashMap<String, Vec<Transaction>> =
         web::block(move || transactions.find_all_related(&body.request_keys))
             .await?
             .map_err(error::ErrorInternalServerError)?;
 
-    Ok(match result[..] {
-        [] => HttpResponse::NotFound().body("Tx not found"),
-        _ => HttpResponse::Ok().json(result),
-    })
+    Ok(HttpResponse::Ok().json(result))
 }
 
 #[get("/balance/{account}")]

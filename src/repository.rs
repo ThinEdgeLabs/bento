@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::vec;
 
 use crate::db::DbError;
 
@@ -300,34 +301,24 @@ impl TransactionsRepository {
     pub fn find_all_related(
         &self,
         request_keys: &Vec<String>,
-    ) -> Result<Vec<Vec<Transaction>>, DbError> {
-        use itertools::Itertools;
+    ) -> Result<HashMap<String, Vec<Transaction>>, DbError> {
         match self.find_by_request_key(request_keys) {
             Ok(transactions) => {
-                let pact_ids = transactions
-                    .iter()
-                    .filter_map(|e| e.pact_id.clone())
-                    .collect::<Vec<String>>();
-                match self.find_by_pact_id(&pact_ids) {
-                    Ok(multi_step_txs) => {
-                        let mut single_step_txs = transactions
-                            .iter()
-                            .filter(|e| e.pact_id.is_none())
-                            .map(|e| vec![e.clone()])
-                            .collect::<Vec<Vec<Transaction>>>();
-                        let multi_step_txs_by_pact_id = multi_step_txs
-                            .into_iter()
-                            .filter(|e| e.pact_id.is_some())
-                            .group_by(|e| e.pact_id.clone().unwrap());
-                        let mut multi_step_txs = Vec::new();
-                        for (_, group) in &multi_step_txs_by_pact_id {
-                            multi_step_txs.push(group.collect::<Vec<Transaction>>());
+                //TODO: Optimize this to avoid multiple queries
+                let mut result = HashMap::new();
+                for tx in transactions.iter() {
+                    if tx.pact_id.is_some() {
+                        match self.find_by_pact_id(&vec![tx.pact_id.clone().unwrap()]) {
+                            Ok(multi_step_txs) => {
+                                result.insert(tx.request_key.clone(), multi_step_txs);
+                            }
+                            Err(err) => return Err(err),
                         }
-                        single_step_txs.append(&mut multi_step_txs);
-                        Ok(single_step_txs)
+                    } else {
+                        result.insert(tx.request_key.clone(), vec![tx.clone()]);
                     }
-                    Err(err) => Err(err),
                 }
+                Ok(result)
             }
             Err(err) => Err(err),
         }
