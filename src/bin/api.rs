@@ -1,6 +1,6 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
-use actix_web::cookie::time::Instant;
 use bento::db;
 use bento::models::*;
 use bento::repository::*;
@@ -8,7 +8,7 @@ use bigdecimal::BigDecimal;
 use dotenvy::dotenv;
 use serde::Deserialize;
 
-use actix_web::{error, get, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{error, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 
 #[get("/tx/{request_key}")]
 async fn tx(
@@ -74,14 +74,18 @@ async fn balance(
 #[get("/transfers/{account}/received")]
 async fn received_transfers(
     path: web::Path<String>,
+    request: HttpRequest,
     transfers: web::Data<TransfersRepository>,
 ) -> actix_web::Result<impl Responder> {
     let account = path.into_inner();
+    let params = web::Query::<HashMap<String, i64>>::from_query(request.query_string()).unwrap();
+    let min_height = params.get("min_height").copied();
     let before = Instant::now();
-    let transfers: Vec<Transfer> = web::block(move || transfers.find_received(&account))
-        .await?
-        .map_err(error::ErrorInternalServerError)?;
-    log::info!("Received transfers took {:?}", before.elapsed());
+    let transfers: Vec<Transfer> =
+        web::block(move || transfers.find_received(&account, min_height))
+            .await?
+            .map_err(error::ErrorInternalServerError)?;
+    log::info!("Received transfers took {:?}", before.elapsed().as_millis());
     Ok(HttpResponse::Ok().json(transfers))
 }
 

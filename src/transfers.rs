@@ -288,13 +288,9 @@ mod tests {
             None,
         )
         .unwrap();
-        let bob_incoming_transfers = transfers_repository
-            .find_incoming("bob", 0, "coin")
-            .unwrap();
+        let bob_incoming_transfers = transfers_repository.find_received("bob", None).unwrap();
         assert!(bob_incoming_transfers.len() == 3);
-        let alice_incoming_transfers = transfers_repository
-            .find_incoming("alice", 0, "coin")
-            .unwrap();
+        let alice_incoming_transfers = transfers_repository.find_received("alice", None).unwrap();
         assert!(alice_incoming_transfers.len() == 1);
     }
 

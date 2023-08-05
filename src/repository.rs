@@ -581,11 +581,19 @@ impl TransfersRepository {
         Ok(balances_by_module)
     }
 
-    pub fn find_received(&self, to_account: &str) -> Result<Vec<Transfer>, DbError> {
-        use crate::schema::transfers::dsl::{to_account as to_account_col, transfers};
+    pub fn find_received(
+        &self,
+        to_account: &str,
+        min_height: Option<i64>,
+    ) -> Result<Vec<Transfer>, DbError> {
+        use crate::schema::transfers::dsl::{
+            height as height_col, to_account as to_account_col, transfers,
+        };
         let mut conn = self.pool.get().unwrap();
+        let min_height = min_height.unwrap_or(0);
         let result = transfers
             .filter(to_account_col.eq(to_account))
+            .filter(height_col.ge(min_height))
             .select(Transfer::as_select())
             .load(&mut conn)?;
         Ok(result)

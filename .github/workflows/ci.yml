@@ -43,7 +43,7 @@ jobs:
 
       - name: cargo check
         run: cargo check --workspace --bins --examples --tests
-        timeout-minutes: 1
+        timeout-minutes: 2
 
       # - name: Start Redis
       #   uses: supercharge/redis-github-action@1.5.0
