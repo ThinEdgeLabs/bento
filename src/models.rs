@@ -1,8 +1,9 @@
 use bigdecimal::BigDecimal;
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
+use serde::Serialize;
 
-#[derive(Queryable, Selectable, Insertable, Debug)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::blocks)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Block {
@@ -22,7 +23,7 @@ pub struct Block {
     pub weight: BigDecimal,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::events)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Event {
@@ -39,9 +40,10 @@ pub struct Event {
     pub request_key: String,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
 #[diesel(table_name = crate::schema::transactions)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
+#[derive(Serialize)]
 pub struct Transaction {
     pub bad_result: Option<serde_json::Value>,
     pub block: String,
@@ -67,4 +69,34 @@ pub struct Transaction {
     pub step: Option<i64>,
     pub ttl: i64,
     pub tx_id: Option<i64>,
+}
+
+#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[diesel(table_name = crate::schema::balances)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+#[derive(Serialize)]
+pub struct Balance {
+    pub account: String,
+    pub amount: BigDecimal,
+    pub chain_id: i64,
+    pub height: i64,
+    pub qual_name: String,
+    pub module: String,
+}
+
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq)]
+#[diesel(table_name = crate::schema::transfers)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+#[derive(Serialize)]
+pub struct Transfer {
+    pub amount: BigDecimal,
+    pub block: String,
+    pub chain_id: i64,
+    pub from_account: String,
+    pub height: i64,
+    pub idx: i64,
+    pub module_hash: String,
+    pub module_name: String,
+    pub request_key: String,
+    pub to_account: String,
 }

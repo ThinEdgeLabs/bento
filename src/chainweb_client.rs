@@ -1,11 +1,13 @@
+use self::tx_result::PactTransactionResult;
+use bigdecimal::BigDecimal;
+use eventsource_client::SSE;
+use futures::Stream;
 use reqwest::Url;
 use serde::Deserializer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Display;
 use std::{collections::HashMap, error::Error};
-
-use self::tx_result::PactTransactionResult;
 
 const HOST: &str = "http://147.182.182.28/chainweb/0.0/mainnet01";
 
@@ -17,7 +19,7 @@ struct BlockHeaderBranchResponse {
     limit: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Bounds {
     pub lower: Vec<Hash>,
     pub upper: Vec<Hash>,
@@ -38,7 +40,7 @@ impl Display for ChainId {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Hash(pub String);
 
 #[derive(Deserialize, Debug)]
@@ -63,7 +65,7 @@ pub struct BlockHeader {
     pub payload_hash: String,
     pub weight: String,
     #[serde(rename(deserialize = "featureFlags"))]
-    pub feature_flags: i32,
+    pub feature_flags: BigDecimal,
     #[serde(rename(deserialize = "epochStart"))]
     pub epoch_start: i64,
     pub adjacents: HashMap<ChainId, String>,
@@ -71,6 +73,16 @@ pub struct BlockHeader {
     pub chainweb_version: String,
     pub target: String,
     pub nonce: String,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+pub struct BlockHeaderEvent {
+    #[serde(rename(deserialize = "txCount"))]
+    pub tx_count: u32,
+    #[serde(rename(deserialize = "powHash"))]
+    pub pow_hash: String,
+    pub header: BlockHeader,
 }
 
 #[derive(Deserialize, Debug)]
@@ -120,21 +132,25 @@ pub struct Meta {
     pub chain_id: String,
     #[serde(
         rename(deserialize = "creationTime",),
-        deserialize_with = "de_f64_or_u64_as_f64"
+        deserialize_with = "de_f64_or_string_as_f64"
     )]
     pub creation_time: f64,
-    #[serde(rename(deserialize = "gasLimit"))]
-    pub gas_limit: i32,
+    #[serde(
+        rename(deserialize = "gasLimit"),
+        deserialize_with = "de_i64_or_string_as_i64"
+    )]
+    pub gas_limit: i64,
     #[serde(
         rename(deserialize = "gasPrice"),
         deserialize_with = "de_f64_or_string_as_f64"
     )]
     pub gas_price: f64,
     pub sender: String,
-    #[serde(deserialize_with = "de_f64_or_u64_as_u64")]
+    #[serde(deserialize_with = "de_f64_or_u64_or_string_as_u64")]
     pub ttl: u64,
 }
 
+#[allow(dead_code)]
 fn de_f64_or_u64_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
     Ok(match Value::deserialize(deserializer)? {
         Value::Number(num) => num.as_f64().unwrap(),
@@ -150,9 +166,20 @@ fn de_f64_or_string_as_f64<'de, D: Deserializer<'de>>(deserializer: D) -> Result
     })
 }
 
-fn de_f64_or_u64_as_u64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+fn de_i64_or_string_as_i64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+    Ok(match Value::deserialize(deserializer)? {
+        Value::Number(num) => num.as_i64().unwrap(),
+        Value::String(s) => s.parse().unwrap(),
+        _ => return Err(serde::de::Error::custom("expected a number or a string")),
+    })
+}
+
+fn de_f64_or_u64_or_string_as_u64<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
     Ok(match Value::deserialize(deserializer)? {
         Value::Number(num) => num.as_f64().unwrap() as u64,
+        Value::String(s) => s.parse().unwrap(),
         _ => return Err(serde::de::Error::custom("expected a number or a string")),
     })
 }
@@ -166,7 +193,7 @@ pub struct Signer {
 #[derive(Deserialize, Debug, PartialEq)]
 pub struct Command {
     #[serde(rename(deserialize = "networkId"))]
-    pub network_id: Network,
+    pub network_id: Option<Network>,
     pub nonce: String,
     pub payload: Payload,
     pub signers: Vec<Signer>,
@@ -242,7 +269,7 @@ pub mod tx_result {
     #[derive(Deserialize, Debug)]
     pub struct PactTransactionResult {
         pub continuation: Option<Value>,
-        pub events: Vec<Event>,
+        pub events: Option<Vec<Event>>,
         pub gas: i64,
         pub logs: String,
         #[serde(rename(deserialize = "metaData"))]
@@ -289,12 +316,22 @@ pub async fn get_block_headers_branches(
     chain: &ChainId,
     bounds: &Bounds,
     next: &Option<String>,
+    min_height: Option<u64>,
+    max_height: Option<u64>,
 ) -> Result<BlockHeaderResponse, Box<dyn Error>> {
     let endpoint = format!("/chain/{chain}/header/branch");
     let mut url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    url.query_pairs_mut().append_pair("limit", "20");
+    url.query_pairs_mut().append_pair("limit", "50");
     if let Some(next) = next {
-        url.query_pairs_mut().append_pair("next", &next);
+        url.query_pairs_mut().append_pair("next", next);
+    }
+    if let Some(min_height) = min_height {
+        url.query_pairs_mut()
+            .append_pair("minheight", &min_height.to_string());
+    }
+    if let Some(max_height) = max_height {
+        url.query_pairs_mut()
+            .append_pair("maxheight", &max_height.to_string());
     }
     let mut headers = reqwest::header::HeaderMap::new();
     headers.append(
@@ -347,6 +384,29 @@ pub async fn poll(
     Ok(response)
 }
 
+#[allow(dead_code)]
+pub fn start_headers_stream(
+) -> Result<impl Stream<Item = Result<SSE, eventsource_client::Error>>, eventsource_client::Error> {
+    use eventsource_client as es;
+    use eventsource_client::Client;
+    use std::time::Duration;
+
+    let endpoint = "/header/updates".to_string();
+    let url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
+    let client = es::ClientBuilder::for_url(url.as_str())?
+        .reconnect(
+            es::ReconnectOptions::reconnect(true)
+                .retry_initial(false)
+                .delay(Duration::from_secs(1))
+                .backoff_factor(2)
+                .delay_max(Duration::from_secs(60))
+                .build(),
+        )
+        .build();
+
+    Ok(client.stream())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,7 +423,7 @@ mod tests {
             step: 1,
         };
         let cmd = Command {
-            network_id: Network::Mainnet,
+            network_id: Some(Network::Mainnet),
             payload: Payload {
                 exec: None,
                 cont: Some(cont),
@@ -397,7 +457,7 @@ mod tests {
             }),
         };
         let cmd = Command {
-            network_id: Network::Mainnet,
+            network_id: Some(Network::Mainnet),
             nonce: String::from("\"2023-06-28T07:50:55.438Z\""),
             payload: Payload {
                 exec: Some(exec),
@@ -428,6 +488,15 @@ mod tests {
         let command = serde_json::from_str::<Command>(json).unwrap();
         assert!(command.payload.exec.is_none());
         assert!(command.payload.cont.is_some());
+
+        let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"code\":\"(namespace \\\"user\\\") (define-keyset \\\"user.z-ks\\\" (read-keyset \\\"ks\\\"))\",\"data\":{\"ks\":{\"keys\":[\"9eb1f99fdc35413c05d58f182d761c38d2b8620b04a5438053ab737099a7f305\"],\"pred\":\"keys-all\"}}}},\"meta\":{\"sender\":\"k:9eb1f99fdc35413c05d58f182d761c38d2b8620b04a5438053ab737099a7f305\",\"chainId\":\"1\",\"gasPrice\":\"0.00000001\",\"gasLimit\":\"100000\",\"ttl\":\"600\",\"creationTime\":1683614361},\"signers\":[{\"pubKey\":\"9eb1f99fdc35413c05d58f182d761c38d2b8620b04a5438053ab737099a7f305\",\"clist\":[]},{\"pubKey\":\"9eb1f99fdc35413c05d58f182d761c38d2b8620b04a5438053ab737099a7f305\",\"clist\":[{\"name\":\"coin.GAS\",\"args\":[]}]}],\"nonce\":\"1683614361\"}";
+        let command = serde_json::from_str::<Command>(json).unwrap();
+        assert!(command.payload.exec.is_some());
+        assert!(command.payload.cont.is_none());
+
+        let json = "{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"account-keyset\":{\"keys\":[\"719884d6557f4d70ea08353b0048fb0298ae0c06c0badf806dc7dcb7a0d7129f\"],\"pred\":\"keys-all\"}},\"code\":\"(coin.transfer-create  \\\"k:6ca5f920b7562a579194b2bd9d1870510bbe03eada5cabe07fc62d7ce2d52e57\\\" \\\"k:719884d6557f4d70ea08353b0048fb0298ae0c06c0badf806dc7dcb7a0d7129f\\\" (read-keyset \\\"account-keyset\\\") 0.001)\"}},\"signers\":[{\"clist\":[{\"name\":\"coin.GAS\",\"args\":[]},{\"name\":\"coin.TRANSFER\",\"args\":[\"k:6ca5f920b7562a579194b2bd9d1870510bbe03eada5cabe07fc62d7ce2d52e57\",\"k:719884d6557f4d70ea08353b0048fb0298ae0c06c0badf806dc7dcb7a0d7129f\",{\"decimal\":\"0.001\"}]}],\"pubKey\":\"6ca5f920b7562a579194b2bd9d1870510bbe03eada5cabe07fc62d7ce2d52e57\"}],\"meta\":{\"creationTime\":\"1658372915\",\"ttl\":28800,\"gasLimit\":600,\"chainId\":\"2\",\"gasPrice\":0.00001,\"sender\":\"k:6ca5f920b7562a579194b2bd9d1870510bbe03eada5cabe07fc62d7ce2d52e57\"},\"nonce\":\"\\\"2022-07-21T03:08:35.479Z\\\"\"}";
+        let command = serde_json::from_str::<Command>(json).unwrap();
+        assert!(command.payload.exec.is_some());
     }
 
     #[test]
@@ -437,5 +506,3 @@ mod tests {
         assert!(command.meta.gas_price == 0.00000001);
     }
 }
-
-//"{\"networkId\":\"mainnet01\",\"payload\":{\"exec\":{\"data\":{\"user-ks\":{\"pred\":\"keys-all\",\"keys\":[\"4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\"]},\"account\":\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\"},\"code\":\"(coin.transfer-crosschain \\\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\\\" \\\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\\\" (read-keyset \\\"user-ks\\\") \\\"8\\\" 0.000355000000)\"}},\"signers\":[{\"clist\":[{\"name\":\"coin.TRANSFER_XCHAIN\",\"args\":[\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\",\"k:4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\",0.000355,\"8\"]}],\"pubKey\":\"4923fc6713ec16d3d21b08d44e236a3663a0442797ed46c5c7f759a8519bd1d1\"}],\"meta\":{\"creationTime\":1688045415.29,\"ttl\":1200,\"gasLimit\":1100,\"chainId\":\"3\",\"gasPrice\":2e-8,\"sender\":\"746d0601603d1cc907ae82fed1c4bdf3\"},\"nonce\":\"\\\"1688045415.292\\\"\"}"
