@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use actix_web::cookie::time::Instant;
 use bento::db;
 use bento::models::*;
 use bento::repository::*;
@@ -70,6 +71,20 @@ async fn balance(
     Ok(HttpResponse::Ok().json(balance))
 }
 
+#[get("/transfers/{account}/received")]
+async fn received_transfers(
+    path: web::Path<String>,
+    transfers: web::Data<TransfersRepository>,
+) -> actix_web::Result<impl Responder> {
+    let account = path.into_inner();
+    let before = Instant::now();
+    let transfers: Vec<Transfer> = web::block(move || transfers.find_received(&account))
+        .await?
+        .map_err(error::ErrorInternalServerError)?;
+    log::info!("Received transfers took {:?}", before.elapsed());
+    Ok(HttpResponse::Ok().json(transfers))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
@@ -86,6 +101,7 @@ async fn main() -> std::io::Result<()> {
             .service(txs)
             .service(balance)
             .service(all_balances)
+            .service(received_transfers)
     })
     .bind(("0.0.0.0", 8181))?
     .run()

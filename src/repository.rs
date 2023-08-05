@@ -581,21 +581,11 @@ impl TransfersRepository {
         Ok(balances_by_module)
     }
 
-    pub fn find_incoming(
-        &self,
-        to_account: &str,
-        chain_id: i64,
-        module: &str,
-    ) -> Result<Vec<Transfer>, DbError> {
-        use crate::schema::transfers::dsl::{
-            chain_id as chain_id_col, module_name as module_name_col, to_account as to_account_col,
-            transfers,
-        };
+    pub fn find_received(&self, to_account: &str) -> Result<Vec<Transfer>, DbError> {
+        use crate::schema::transfers::dsl::{to_account as to_account_col, transfers};
         let mut conn = self.pool.get().unwrap();
         let result = transfers
             .filter(to_account_col.eq(to_account))
-            .filter(chain_id_col.eq(chain_id))
-            .filter(module_name_col.eq(module))
             .select(Transfer::as_select())
             .load(&mut conn)?;
         Ok(result)
