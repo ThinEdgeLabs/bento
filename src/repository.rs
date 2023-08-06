@@ -585,29 +585,47 @@ impl TransfersRepository {
         &self,
         to_account: &str,
         min_height: Option<i64>,
-    ) -> Result<Vec<Transfer>, DbError> {
+    ) -> Result<HashMap<String, Vec<Transfer>>, DbError> {
         use crate::schema::transfers::dsl::{
             height as height_col, to_account as to_account_col, transfers,
         };
+        use itertools::Itertools;
         let mut conn = self.pool.get().unwrap();
         let min_height = min_height.unwrap_or(0);
-        let result = transfers
+        let received_transfers = transfers
             .filter(to_account_col.eq(to_account))
             .filter(height_col.ge(min_height))
             .select(Transfer::as_select())
             .load(&mut conn)?;
-        Ok(result)
+        let multi_step_transfers_pact_ids = received_transfers
+            .iter()
+            .filter_map(|t| t.pact_id.clone())
+            .collect::<Vec<String>>();
+        let multi_step_transfers = self.find_by_pact_id(multi_step_transfers_pact_ids)?;
+        let mut simple_transfers = received_transfers
+            .iter()
+            .filter(|e| e.pact_id.is_none())
+            .map(|e| (e.request_key.clone(), vec![e.clone()]))
+            .collect::<HashMap<String, Vec<Transfer>>>();
+        let multi_step_transfers = multi_step_transfers
+            .iter()
+            .filter(|t| t.from_account == to_account || t.to_account == to_account)
+            .group_by(|t| t.pact_id.clone().unwrap());
+        for (request_key, transfers_list) in &multi_step_transfers {
+            simple_transfers.insert(request_key, transfers_list.cloned().collect_vec());
+        }
+        Ok(simple_transfers)
     }
 
-    // pub fn find_by_account(&self, account: &str) -> Result<Vec<Balance>, DbError> {
-    //     use crate::schema::balances::dsl::{account as account_col, balances};
-    //     let mut conn = self.pool.get().unwrap();
-    //     let results = balances
-    //         .filter(account_col.eq(account))
-    //         .select(Balance::as_select())
-    //         .load::<Balance>(&mut conn)?;
-    //     Ok(results)
-    // }
+    pub fn find_by_pact_id(&self, ids: Vec<String>) -> Result<Vec<Transfer>, DbError> {
+        use crate::schema::transfers::dsl::{pact_id as pact_id_col, transfers};
+        let mut conn = self.pool.get().unwrap();
+        let results = transfers
+            .filter(pact_id_col.eq_any(ids))
+            .select(Transfer::as_select())
+            .load(&mut conn)?;
+        Ok(results)
+    }
 
     pub fn insert(&self, transfer: &Transfer) -> Result<Transfer, DbError> {
         use crate::schema::transfers::dsl::*;

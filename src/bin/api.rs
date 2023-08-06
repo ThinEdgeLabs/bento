@@ -81,7 +81,7 @@ async fn received_transfers(
     let params = web::Query::<HashMap<String, i64>>::from_query(request.query_string()).unwrap();
     let min_height = params.get("min_height").copied();
     let before = Instant::now();
-    let transfers: Vec<Transfer> =
+    let transfers: HashMap<String, Vec<Transfer>> =
         web::block(move || transfers.find_received(&account, min_height))
             .await?
             .map_err(error::ErrorInternalServerError)?;

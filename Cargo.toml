@@ -22,6 +22,7 @@ dotenvy = "0.15.7"
 env_logger = "0.10.0"
 eventsource-client = "0.11.0"
 futures = "0.3.28"
+itertools = "0.11.0"
 log = "0.4.19"
 reqwest = { version = "0.11.18", features = ["json"] }
 serde = { version = "1.0.164", features = ["derive"] }
@@ -29,3 +30,4 @@ serde_json = "1.0.97"
 tokio = { version = "1.28.2", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["full"] }
 actix-web = "4"
+
