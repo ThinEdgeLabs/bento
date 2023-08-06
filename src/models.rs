@@ -38,6 +38,7 @@ pub struct Event {
     pub param_text: String,
     pub qual_name: String,
     pub request_key: String,
+    pub pact_id: Option<String>,
 }
 
 #[derive(Queryable, Selectable, Insertable, Debug, Clone)]
@@ -97,6 +98,7 @@ pub struct Transfer {
     pub idx: i64,
     pub module_hash: String,
     pub module_name: String,
+    pub pact_id: Option<String>,
     pub request_key: String,
     pub to_account: String,
 }

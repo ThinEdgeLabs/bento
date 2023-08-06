@@ -43,6 +43,7 @@ diesel::table! {
         param_text -> Varchar,
         qual_name -> Varchar,
         request_key -> Varchar,
+        pact_id -> Nullable<Varchar>,
     }
 }
 
@@ -87,6 +88,7 @@ diesel::table! {
         module_name -> Varchar,
         request_key -> Varchar,
         to_account -> Varchar,
+        pact_id -> Nullable<Varchar>,
     }
 }
 

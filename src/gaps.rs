@@ -205,7 +205,7 @@ mod tests {
             .unwrap();
 
         let chain = ChainId(0);
-        assert!(find_gaps(&chain, &blocks).is_ok_and(|result| result.is_empty()));
+        assert!(find_gaps(&chain, &blocks).unwrap().is_empty());
     }
     #[test]
     fn test_find_gaps() {

@@ -182,8 +182,6 @@ impl Indexer {
         let request_keys: Vec<String> = signed_txs_by_hash.keys().map(|e| e.to_string()).collect();
         let tx_results = fetch_transactions_results(&request_keys[..], chain_id).await?;
         let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
-        //TODO: Filter out if there are any txs where the block hash is not the same as the hash of the block
-        //that we inserted above
         if txs.len() > 0 {
             match self.transactions.insert_batch(&txs) {
                 Ok(inserted) => log::info!("Inserted {} transactions", inserted),
@@ -496,7 +494,9 @@ fn build_transaction(
         metadata: Some(serde_json::to_value(&pact_result.metadata).unwrap()),
         nonce: command.nonce,
         num_events: pact_result.events.as_ref().map(|e| e.len() as i64),
-        pact_id: continuation.clone().map(|e| e["pactId"].to_string()),
+        pact_id: continuation
+            .clone()
+            .map(|e| e["pactId"].as_str().unwrap().to_string()),
         proof: proof.flatten(),
         request_key: pact_result.request_key.to_string(),
         rollback: continuation
@@ -530,18 +530,26 @@ fn build_events(
     let mut events = vec![];
     if pact_result.events.is_some() {
         for (i, event) in pact_result.events.as_ref().unwrap().iter().enumerate() {
+            let module = match &event.module.namespace {
+                Some(namespace) => format!("{}.{}", namespace, event.module.name),
+                None => format!("{}", &event.module.name),
+            };
             let event = crate::models::Event {
                 block: pact_result.metadata.block_hash.clone(),
                 chain_id: command.meta.chain_id.parse().unwrap(),
                 height: pact_result.metadata.block_height,
                 idx: i as i64,
-                module: event.module.name.clone(),
-                module_hash: "".to_string(), // TODO: Get module hash
+                module,
+                module_hash: event.module_hash.to_string(),
                 name: event.name.clone(),
                 params: event.params.clone(),
                 param_text: event.params.to_string(),
                 qual_name: format!("{}.{}", event.module.name, event.name),
                 request_key: pact_result.request_key.to_string(),
+                pact_id: pact_result
+                    .continuation
+                    .clone()
+                    .map(|e| e["pactId"].as_str().unwrap().to_string()),
             };
             events.push(event);
         }

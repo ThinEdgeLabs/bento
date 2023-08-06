@@ -120,6 +120,7 @@ fn make_transfer(event: &Event) -> Transfer {
             false => BigDecimal::from(0),
         },
     };
+
     Transfer {
         amount: amount,
         block: event.block.clone(),
@@ -131,6 +132,7 @@ fn make_transfer(event: &Event) -> Transfer {
         module_name: event.module.clone(),
         request_key: event.request_key.clone(),
         to_account: receiver,
+        pact_id: event.pact_id.clone(),
     }
 }
 
@@ -180,7 +182,7 @@ mod tests {
     use chrono::Utc;
 
     #[test]
-    fn test_backfill() {
+    fn test_transers_backfill() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
         let blocks_repository = BlocksRepository { pool: pool.clone() };
@@ -218,6 +220,7 @@ mod tests {
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key-a".to_string(),
+            pact_id: None,
         };
         let event_2 = Event {
             block: "block-0".to_string(),
@@ -231,6 +234,7 @@ mod tests {
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key-b".to_string(),
+            pact_id: None,
         };
         let block = Block {
             chain_id: 0,
@@ -261,6 +265,7 @@ mod tests {
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key-b".to_string(),
+            pact_id: Some(String::from("pact-id")),
         };
         let event_4 = Event {
             block: "block-2".to_string(),
@@ -274,6 +279,7 @@ mod tests {
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key-b".to_string(),
+            pact_id: event_3.pact_id.clone(),
         };
         events_repository
             .insert_batch(&[event_1, event_2, event_3, event_4])
@@ -308,6 +314,7 @@ mod tests {
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key".to_string(),
+            pact_id: None,
         };
         let transfer = make_transfer(&event);
         assert_eq!(
@@ -323,6 +330,7 @@ mod tests {
                 module_name: "coin".to_string(),
                 request_key: "request-key".to_string(),
                 to_account: "alice".to_string(),
+                pact_id: None
             }
         );
 
@@ -344,6 +352,7 @@ mod tests {
                 module_name: "coin".to_string(),
                 request_key: "request-key".to_string(),
                 to_account: "alice".to_string(),
+                pact_id: None
             }
         );
         let no_receiver_event = Event {
@@ -364,6 +373,7 @@ mod tests {
                 module_name: "coin".to_string(),
                 request_key: "request-key".to_string(),
                 to_account: "".to_string(),
+                pact_id: None
             }
         );
     }
@@ -382,6 +392,7 @@ mod tests {
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key".to_string(),
+            pact_id: None,
         };
         let transfer = make_transfer(&event);
         assert!(transfer.amount == BigDecimal::from_str("22.230409400000000000000000").unwrap());
@@ -397,6 +408,7 @@ mod tests {
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key".to_string(),
+            pact_id: None,
         };
         let transfer = make_transfer(&event);
         assert!(transfer.amount == BigDecimal::from(1));
@@ -417,6 +429,7 @@ mod tests {
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key".to_string(),
+            pact_id: None,
         };
         let transfer = make_transfer(&event);
         assert!(transfer.amount == BigDecimal::from(0));
@@ -436,6 +449,7 @@ mod tests {
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
             request_key: "request-key".to_string(),
+            pact_id: None,
         };
         assert!(is_balance_transfer(&event));
     }
