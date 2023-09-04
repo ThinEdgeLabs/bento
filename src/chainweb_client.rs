@@ -6,10 +6,13 @@ use reqwest::Url;
 use serde::Deserializer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::env;
 use std::fmt::Display;
 use std::{collections::HashMap, error::Error};
 
-const HOST: &str = "http://147.182.182.28/chainweb/0.0/mainnet01";
+// const HOST: &str = "http://147.182.182.28/chainweb/0.0/mainnet01";
+//const HOST: &str = "https://chainweb.kaddex.com/chainweb/0.0/mainnet01";
+//const HOST: &str = "https://api.chainweb.com/chainweb/0.0/mainnet01";
 
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
@@ -282,129 +285,148 @@ pub mod tx_result {
     }
 }
 
-pub async fn get_cut() -> Result<Cut, Box<dyn Error>> {
-    let endpoint = "/cut";
-    let url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    let response = reqwest::Client::new()
-        .get(url)
-        .send()
-        .await?
-        .json::<Cut>()
-        .await?;
-    Ok(response)
+pub struct ChainwebClient {
+    base_url: String,
 }
 
-#[allow(dead_code)]
-async fn get_block_hashes_branches(
-    chain: &ChainId,
-    bounds: &Bounds,
-) -> Result<BlockHeaderBranchResponse, Box<dyn Error>> {
-    let endpoint = format!("/chain/{chain}/hash/branch");
-    let mut url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    url.query_pairs_mut().append_pair("limit", "50");
-    let response = reqwest::Client::new()
-        .post(url)
-        .json(bounds)
-        .send()
-        .await?
-        .json::<BlockHeaderBranchResponse>()
-        .await?;
-    Ok(response)
-}
-
-pub async fn get_block_headers_branches(
-    chain: &ChainId,
-    bounds: &Bounds,
-    next: &Option<String>,
-    min_height: Option<u64>,
-    max_height: Option<u64>,
-) -> Result<BlockHeaderResponse, Box<dyn Error>> {
-    let endpoint = format!("/chain/{chain}/header/branch");
-    let mut url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    url.query_pairs_mut().append_pair("limit", "50");
-    if let Some(next) = next {
-        url.query_pairs_mut().append_pair("next", next);
+impl ChainwebClient {
+    pub fn new() -> Self {
+        let host = env::var("CHAINWEB_NODE_HOST").expect("Missing CHAINWEB_NODE_HOST");
+        ChainwebClient {
+            base_url: format!("{host}/chainweb/0.0/mainnet01"),
+        }
     }
-    if let Some(min_height) = min_height {
-        url.query_pairs_mut()
-            .append_pair("minheight", &min_height.to_string());
+
+    pub async fn get_cut(&self) -> Result<Cut, Box<dyn Error>> {
+        let endpoint = "/cut";
+        let url = Url::parse(&format!("{}{}", self.base_url, endpoint)).unwrap();
+        let response = reqwest::Client::new()
+            .get(url)
+            .send()
+            .await?
+            .json::<Cut>()
+            .await?;
+        Ok(response)
     }
-    if let Some(max_height) = max_height {
-        url.query_pairs_mut()
-            .append_pair("maxheight", &max_height.to_string());
+
+    #[allow(dead_code)]
+    async fn get_block_hashes_branches(
+        &self,
+        chain: &ChainId,
+        bounds: &Bounds,
+    ) -> Result<BlockHeaderBranchResponse, Box<dyn Error>> {
+        let endpoint = format!("/chain/{chain}/hash/branch");
+        let mut url = Url::parse(&format!("{}{}", self.base_url, endpoint)).unwrap();
+        url.query_pairs_mut().append_pair("limit", "50");
+        let response = reqwest::Client::new()
+            .post(url)
+            .json(bounds)
+            .send()
+            .await?
+            .json::<BlockHeaderBranchResponse>()
+            .await?;
+        Ok(response)
     }
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.append(
-        "accept",
-        "application/json;blockheader-encoding=object"
-            .parse()
-            .unwrap(),
-    );
 
-    let response: BlockHeaderResponse = reqwest::Client::new()
-        .post(url)
-        .json(bounds)
-        .headers(headers)
-        .send()
-        .await?
-        .json()
-        .await?;
-    Ok(response)
-}
+    pub async fn get_block_headers_branches(
+        &self,
+        chain: &ChainId,
+        bounds: &Bounds,
+        next: &Option<String>,
+        min_height: Option<u64>,
+        max_height: Option<u64>,
+    ) -> Result<BlockHeaderResponse, Box<dyn Error>> {
+        let endpoint = format!("/chain/{chain}/header/branch");
+        let mut url = Url::parse(&format!("{}{}", self.base_url, endpoint)).unwrap();
+        url.query_pairs_mut().append_pair("limit", "50");
+        if let Some(next) = next {
+            url.query_pairs_mut().append_pair("next", next);
+        }
+        if let Some(min_height) = min_height {
+            url.query_pairs_mut()
+                .append_pair("minheight", &min_height.to_string());
+        }
+        if let Some(max_height) = max_height {
+            url.query_pairs_mut()
+                .append_pair("maxheight", &max_height.to_string());
+        }
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.append(
+            "accept",
+            "application/json;blockheader-encoding=object"
+                .parse()
+                .unwrap(),
+        );
+        let response: BlockHeaderResponse = reqwest::Client::new()
+            .post(url)
+            .json(bounds)
+            .headers(headers)
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(response)
+    }
 
-pub async fn get_block_payload_batch(
-    chain: &ChainId,
-    block_payload_hash: Vec<&str>,
-) -> Result<Vec<BlockPayload>, Box<dyn Error>> {
-    let endpoint = format!("/chain/{chain}/payload/batch");
-    let url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    let response: Vec<BlockPayload> = reqwest::Client::new()
-        .post(url)
-        .json(&block_payload_hash)
-        .send()
-        .await?
-        .json()
-        .await?;
-    Ok(response)
-}
+    pub async fn get_block_payload_batch(
+        &self,
+        chain: &ChainId,
+        block_payload_hash: Vec<&str>,
+    ) -> Result<Vec<BlockPayload>, Box<dyn Error>> {
+        let endpoint = format!("/chain/{chain}/payload/batch");
+        let url = Url::parse(&format!("{}{}", self.base_url, endpoint)).unwrap();
+        let response: Vec<BlockPayload> = reqwest::Client::new()
+            .post(url)
+            .json(&block_payload_hash)
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(response)
+    }
 
-pub async fn poll(
-    request_keys: &Vec<String>,
-    chain: &ChainId,
-) -> Result<HashMap<String, PactTransactionResult>, Box<dyn Error>> {
-    let endpoint = format!("/chain/{chain}/pact/api/v1/poll");
-    let url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    let response = reqwest::Client::new()
-        .post(url)
-        .json(&serde_json::json!({ "requestKeys": request_keys }))
-        .send()
-        .await?
-        .json()
-        .await?;
-    Ok(response)
-}
+    pub async fn poll(
+        &self,
+        request_keys: &Vec<String>,
+        chain: &ChainId,
+    ) -> Result<HashMap<String, PactTransactionResult>, Box<dyn Error>> {
+        let endpoint = format!("/chain/{chain}/pact/api/v1/poll");
+        let url = Url::parse(&format!("{}{}", self.base_url, endpoint)).unwrap();
+        println!("request keys: {}", request_keys.len());
+        let response = reqwest::Client::new()
+            .post(url)
+            .json(&serde_json::json!({ "requestKeys": request_keys }))
+            .send()
+            .await?
+            .json()
+            .await?;
+        Ok(response)
+    }
 
-#[allow(dead_code)]
-pub fn start_headers_stream(
-) -> Result<impl Stream<Item = Result<SSE, eventsource_client::Error>>, eventsource_client::Error> {
-    use eventsource_client as es;
-    use eventsource_client::Client;
-    use std::time::Duration;
+    #[allow(dead_code)]
+    pub fn start_headers_stream(
+        &self,
+    ) -> Result<impl Stream<Item = Result<SSE, eventsource_client::Error>>, eventsource_client::Error>
+    {
+        use eventsource_client as es;
+        use eventsource_client::Client;
+        use std::time::Duration;
 
-    let endpoint = "/header/updates".to_string();
-    let url = Url::parse(&format!("{HOST}{endpoint}")).unwrap();
-    let client = es::ClientBuilder::for_url(url.as_str())?
-        .reconnect(
-            es::ReconnectOptions::reconnect(true)
-                .retry_initial(false)
-                .delay(Duration::from_secs(1))
-                .backoff_factor(2)
-                .delay_max(Duration::from_secs(60))
-                .build(),
-        )
-        .build();
+        let endpoint = "/header/updates".to_string();
+        let url = Url::parse(&format!("{}{}", self.base_url, endpoint)).unwrap();
+        let client = es::ClientBuilder::for_url(url.as_str())?
+            .reconnect(
+                es::ReconnectOptions::reconnect(true)
+                    .retry_initial(false)
+                    .delay(Duration::from_secs(1))
+                    .backoff_factor(2)
+                    .delay_max(Duration::from_secs(60))
+                    .build(),
+            )
+            .build();
 
-    Ok(client.stream())
+        Ok(client.stream())
+    }
 }
 
 #[cfg(test)]
