@@ -1,4 +1,4 @@
-use crate::chainweb_client;
+use crate::chainweb_client::ChainwebClient;
 use crate::db::DbError;
 use crate::models::{Event, Transfer};
 use crate::repository::{EventsRepository, TransfersRepository};
@@ -8,10 +8,11 @@ use std::time::Instant;
 
 pub async fn backfill(
     batch_size: i64,
+    chainweb_client: &ChainwebClient,
     events_repository: &EventsRepository,
     transfers_repository: &TransfersRepository,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let cut = chainweb_client::get_cut().await.unwrap();
+    let cut = chainweb_client.get_cut().await.unwrap();
     cut.hashes.iter().for_each(|e| {
         let chain_id = e.0 .0;
         log::info!("Backfilling transfers on chain {}...", chain_id);

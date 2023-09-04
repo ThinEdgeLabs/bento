@@ -2,16 +2,17 @@ use std::vec;
 
 use futures::{stream, StreamExt};
 
-use crate::chainweb_client::{self, Bounds, ChainId, Hash};
+use crate::chainweb_client::{Bounds, ChainId, ChainwebClient, Hash};
 use crate::indexer::Indexer;
 use crate::models::Block;
 use crate::{db::DbError, repository::BlocksRepository};
 
-pub async fn fill_gaps(
+pub async fn fill_gaps<'a>(
+    chainweb_client: &ChainwebClient,
     blocks_repo: &BlocksRepository,
-    indexer: &Indexer,
+    indexer: &Indexer<'a>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let cut = chainweb_client::get_cut().await.unwrap();
+    let cut = chainweb_client.get_cut().await.unwrap();
     let gaps = cut
         .hashes
         .iter()
@@ -47,6 +48,7 @@ pub async fn fill_gaps(
                             upper: vec![Hash(upper_bound.hash.clone())],
                         },
                         &chain,
+                        false,
                     )
                     .await
             })

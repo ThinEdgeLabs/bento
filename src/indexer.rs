@@ -10,30 +10,30 @@ use std::str::FromStr;
 use std::time::Instant;
 use std::vec;
 
-use crate::db::DbError;
-use crate::transfers;
-
-use super::chainweb_client;
 use super::chainweb_client::{
     tx_result::PactTransactionResult, BlockHeader, BlockPayload, Bounds, ChainId, Command, Cut,
     Hash, Payload, SignedTransaction,
 };
 use super::models::*;
 use super::repository::*;
+use crate::chainweb_client::ChainwebClient;
+use crate::db::DbError;
+use crate::transfers;
 
-pub struct Indexer {
+pub struct Indexer<'a> {
+    pub chainweb_client: &'a ChainwebClient,
     pub blocks: BlocksRepository,
     pub events: EventsRepository,
     pub transactions: TransactionsRepository,
     pub transfers: TransfersRepository,
 }
 
-impl Indexer {
+impl<'a> Indexer<'a> {
     pub async fn backfill(&self) -> Result<(), Box<dyn Error>> {
-        let cut = chainweb_client::get_cut().await.unwrap();
+        let cut = self.chainweb_client.get_cut().await.unwrap();
         let bounds: Vec<(ChainId, Bounds)> = self.get_all_bounds(&cut);
         stream::iter(bounds)
-            .map(|(chain, bounds)| async move { self.index_chain(bounds, &chain).await })
+            .map(|(chain, bounds)| async move { self.index_chain(bounds, &chain, false).await })
             .buffer_unordered(4)
             .collect::<Vec<Result<(), Box<dyn Error>>>>()
             .await;
@@ -45,8 +45,9 @@ impl Indexer {
         min_height: i64,
         max_height: i64,
         chain: i64,
+        force_update: bool,
     ) -> Result<(), Box<dyn Error>> {
-        let cut = chainweb_client::get_cut().await.unwrap();
+        let cut = self.chainweb_client.get_cut().await.unwrap();
         let latest_block_hash = cut
             .hashes
             .get(&ChainId(chain as u16))
@@ -58,31 +59,46 @@ impl Indexer {
             upper: vec![Hash(latest_block_hash)],
         };
         let chain_id = ChainId(chain as u16);
-        let headers = chainweb_client::get_block_headers_branches(
-            &chain_id,
-            &bounds,
-            &None,
-            Some(min_height as u64),
-            Some(max_height as u64),
-        )
-        .await?;
+        let range_low = self
+            .chainweb_client
+            .get_block_headers_branches(
+                &chain_id,
+                &bounds,
+                &None,
+                None,
+                // The /chain/{chain}/header/branch endpoint returns blocks > min_height
+                // not >= as the documentation states so we go one block back to make
+                // sure we also get the block at min_height.
+                Some((min_height - 1) as u64),
+            )
+            .await?;
+        let range_high = self
+            .chainweb_client
+            .get_block_headers_branches(&chain_id, &bounds, &None, None, Some(max_height as u64))
+            .await?;
         let bounds = Bounds {
-            lower: vec![Hash(headers.items.last().unwrap().hash.to_string())],
-            upper: vec![Hash(headers.items.first().unwrap().hash.to_string())],
+            lower: vec![Hash(range_low.items.first().unwrap().hash.to_string())],
+            upper: vec![Hash(range_high.items.first().unwrap().hash.to_string())],
         };
-        self.index_chain(bounds, &chain_id).await?;
+        self.index_chain(bounds, &chain_id, force_update).await?;
         Ok(())
     }
 
-    pub async fn index_chain(&self, bounds: Bounds, chain: &ChainId) -> Result<(), Box<dyn Error>> {
+    pub async fn index_chain(
+        &self,
+        bounds: Bounds,
+        chain: &ChainId,
+        force_update: bool,
+    ) -> Result<(), Box<dyn Error>> {
         log::info!("Indexing chain: {}, bounds: {:?}", chain.0, bounds);
         let mut next_bounds = bounds;
         loop {
             let before = Instant::now();
-            let response =
-                chainweb_client::get_block_headers_branches(chain, &next_bounds, &None, None, None)
-                    .await
-                    .unwrap();
+            let response = self
+                .chainweb_client
+                .get_block_headers_branches(chain, &next_bounds, &None, None, None)
+                .await
+                .unwrap();
             match response.items[..] {
                 [] => return Ok(()),
                 _ => {
@@ -93,19 +109,20 @@ impl Indexer {
                         response.items.first().unwrap().height,
                         response.items.last().unwrap().height
                     );
-
                     let previous_bounds = next_bounds.clone();
                     next_bounds = Bounds {
                         upper: vec![Hash(response.items.last().unwrap().hash.to_string())],
                         ..next_bounds
                     };
+
                     if next_bounds == previous_bounds {
                         log::info!("Chain {}: fetched all blocks within given bounds.", chain.0);
                         return Ok(());
                     }
                 }
             }
-            self.process_headers(response.items, chain).await?;
+            self.process_headers(response.items, chain, force_update)
+                .await?;
             log::info!(
                 "Chain {}, elapsed time per batch: {:.2?}",
                 chain.0,
@@ -162,25 +179,40 @@ impl Indexer {
         &self,
         headers: Vec<BlockHeader>,
         chain_id: &ChainId,
+        force_update: bool,
     ) -> Result<(), Box<dyn Error>> {
-        let payloads = chainweb_client::get_block_payload_batch(
-            chain_id,
-            headers
-                .iter()
-                .map(|e| e.payload_hash.as_str())
-                .collect::<Vec<&str>>(),
-        )
-        .await
-        .unwrap();
+        let payloads = self
+            .chainweb_client
+            .get_block_payload_batch(
+                chain_id,
+                headers
+                    .iter()
+                    .map(|e| e.payload_hash.as_str())
+                    .collect::<Vec<&str>>(),
+            )
+            .await
+            .unwrap();
+        let blocks = self.build_blocks(&headers, &payloads);
 
-        match self.save_blocks(&headers, &payloads) {
+        if force_update == true {
+            blocks
+                .iter()
+                .for_each(|block| match self.delete_block_data(block) {
+                    Ok(_) => {}
+                    Err(e) => panic!("Error deleting data for block {}: {:#?}", block.hash, e),
+                });
+        }
+
+        match self.blocks.insert_batch(&blocks) {
             Ok(_) => {}
             Err(e) => panic!("Error inserting blocks: {:#?}", e),
         }
 
         let signed_txs_by_hash = get_signed_txs_from_payloads(&payloads);
         let request_keys: Vec<String> = signed_txs_by_hash.keys().map(|e| e.to_string()).collect();
-        let tx_results = fetch_transactions_results(&request_keys[..], chain_id).await?;
+        let tx_results = self
+            .fetch_transactions_results(&request_keys[..], chain_id)
+            .await?;
         let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
         if txs.len() > 0 {
             match self.transactions.insert_batch(&txs) {
@@ -209,9 +241,10 @@ impl Indexer {
         header: &BlockHeader,
         chain_id: &ChainId,
     ) -> Result<(), Box<dyn Error>> {
-        let payloads =
-            chainweb_client::get_block_payload_batch(chain_id, vec![header.payload_hash.as_str()])
-                .await?;
+        let payloads = self
+            .chainweb_client
+            .get_block_payload_batch(chain_id, vec![header.payload_hash.as_str()])
+            .await?;
         if payloads.is_empty() {
             log::error!(
                 "No payload received from node, payload hash: {}, height: {}, chain: {}",
@@ -233,7 +266,9 @@ impl Indexer {
         let signed_txs_by_hash = get_signed_txs_from_payload(&payloads[0]);
         let request_keys: Vec<String> = signed_txs_by_hash.keys().map(|e| e.to_string()).collect();
         let before = Instant::now();
-        let tx_results = fetch_transactions_results(&request_keys[..], chain_id).await?;
+        let tx_results = self
+            .fetch_transactions_results(&request_keys[..], chain_id)
+            .await?;
         log::info!("Elapsed time to get results: {:.2?}", before.elapsed());
         let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
         txs.iter().for_each(|tx| {
@@ -281,7 +316,7 @@ impl Indexer {
         use eventsource_client as es;
         use futures::stream::TryStreamExt;
 
-        match chainweb_client::start_headers_stream() {
+        match self.chainweb_client.start_headers_stream() {
             Ok(stream) => {
                 log::info!("Stream started");
                 match stream
@@ -331,11 +366,7 @@ impl Indexer {
 
     /// Builds the list of blocks from the given headers and payloads
     /// and inserts them in the database in a single transaction.
-    fn save_blocks(
-        &self,
-        headers: &Vec<BlockHeader>,
-        payloads: &Vec<BlockPayload>,
-    ) -> Result<Vec<Block>, DbError> {
+    fn build_blocks(&self, headers: &Vec<BlockHeader>, payloads: &Vec<BlockPayload>) -> Vec<Block> {
         let headers_by_payload_hash = headers
             .iter()
             .map(|e| (e.payload_hash.clone(), e))
@@ -344,13 +375,12 @@ impl Indexer {
             .iter()
             .map(|e| (e.payload_hash.clone(), e))
             .collect::<HashMap<String, &BlockPayload>>();
-        let blocks = headers_by_payload_hash
+        headers_by_payload_hash
             .into_iter()
             .map(|(payload_hash, header)| {
                 build_block(header, payloads_by_hash.get(&payload_hash).unwrap())
             })
-            .collect::<Vec<Block>>();
-        self.blocks.insert_batch(&blocks)
+            .collect::<Vec<Block>>()
     }
 
     fn save_block(&self, block: &Block) -> Result<Block, DbError> {
@@ -386,6 +416,41 @@ impl Indexer {
                 _ => Err(e),
             },
         }
+    }
+
+    fn delete_block_data(&self, block: &Block) -> Result<(), DbError> {
+        self.transfers
+            .delete_all_by_block(&block.hash, block.chain_id)?;
+        self.events.delete_all_by_block(&block.hash)?;
+        self.transactions.delete_all_by_block(&block.hash)?;
+        self.blocks.delete_by_hash(&block.hash, block.chain_id)?;
+
+        Ok(())
+    }
+
+    async fn fetch_transactions_results(
+        &self,
+        request_keys: &[String],
+        chain: &ChainId,
+    ) -> Result<Vec<PactTransactionResult>, Box<dyn Error>> {
+        let transactions_per_request = 20;
+        let concurrent_requests = 1;
+        let mut results: Vec<PactTransactionResult> = vec![];
+        //TODO: Try to use tokio::StreamExt instead or figure out a way to return a Result
+        // so we can handle errors if any of the requests fail
+        futures::stream::iter(request_keys.chunks(transactions_per_request))
+            .map(|chunk| async move { self.chainweb_client.poll(&chunk.to_vec(), chain).await })
+            .buffer_unordered(concurrent_requests)
+            .for_each(|result| {
+                match result {
+                    Ok(result) => results
+                        .append(&mut result.into_values().collect::<Vec<PactTransactionResult>>()),
+                    Err(e) => log::info!("Error: {}", e),
+                }
+                async {}
+            })
+            .await;
+        Ok(results)
     }
 }
 
@@ -544,6 +609,7 @@ fn build_events(
                 name: event.name.clone(),
                 params: event.params.clone(),
                 param_text: event.params.to_string(),
+                //TODO: Add the namespace to qual_name
                 qual_name: format!("{}.{}", event.module.name, event.name),
                 request_key: pact_result.request_key.to_string(),
                 pact_id: pact_result
@@ -555,31 +621,6 @@ fn build_events(
         }
     }
     events
-}
-
-pub async fn fetch_transactions_results(
-    request_keys: &[String],
-    chain: &ChainId,
-) -> Result<Vec<PactTransactionResult>, Box<dyn Error>> {
-    let transactions_per_request = 30;
-    let concurrent_requests = 8;
-    let mut results: Vec<PactTransactionResult> = vec![];
-
-    //TODO: Try to use tokio::StreamExt instead or figure out a way to return a Result
-    // so we can handle errors if any of the requests fail
-    futures::stream::iter(request_keys.chunks(transactions_per_request))
-        .map(|chunk| async move { chainweb_client::poll(&chunk.to_vec(), chain).await })
-        .buffer_unordered(concurrent_requests)
-        .for_each(|result| {
-            match result {
-                Ok(result) => results
-                    .append(&mut result.into_values().collect::<Vec<PactTransactionResult>>()),
-                Err(e) => log::info!("Error: {}", e),
-            }
-            async {}
-        })
-        .await;
-    Ok(results)
 }
 
 #[cfg(test)]
@@ -647,7 +688,7 @@ mod tests {
     fn test_save_block() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
-
+        let client = ChainwebClient::new();
         let blocks = BlocksRepository { pool: pool.clone() };
         let events = EventsRepository { pool: pool.clone() };
         let transactions = TransactionsRepository { pool: pool.clone() };
@@ -658,6 +699,7 @@ mod tests {
         blocks.delete_all().unwrap();
 
         let indexer = Indexer {
+            chainweb_client: &client,
             blocks,
             events,
             transactions,
