@@ -215,6 +215,9 @@ impl EventsRepository {
         let mut conn = self.pool.get().unwrap();
         let new_event = diesel::insert_into(events)
             .values(event)
+            .on_conflict((block, idx, request_key))
+            .do_update()
+            .set(event)
             .returning(Event::as_returning())
             .get_result(&mut conn)?;
         Ok(new_event)
@@ -581,31 +584,63 @@ impl TransfersRepository {
         Ok(balances_by_module)
     }
 
+    pub fn find(
+        &self,
+        from: Option<String>,
+        to: Option<String>,
+        min_height: Option<i64>,
+    ) -> Result<Vec<(Transfer, Block)>, DbError> {
+        use crate::schema::blocks::dsl::blocks;
+        use crate::schema::transfers::dsl::{
+            from_account as from_account_col, height as height_col, to_account as to_account_col,
+            transfers,
+        };
+        let mut conn = self.pool.get().unwrap();
+        let mut query = transfers.into_boxed();
+        if let Some(from) = from {
+            query = query.filter(from_account_col.eq(from));
+        }
+        if let Some(to) = to {
+            query = query.filter(to_account_col.eq(to));
+        }
+        if let Some(min_height) = min_height {
+            query = query.filter(height_col.ge(min_height));
+        }
+        let transfers_with_blocks: Vec<(Transfer, Block)> = query
+            .inner_join(blocks)
+            .select((Transfer::as_select(), Block::as_select()))
+            .load::<(Transfer, Block)>(&mut conn)?;
+        return Ok(transfers_with_blocks);
+    }
+
     pub fn find_received(
         &self,
         to_account: &str,
         min_height: Option<i64>,
     ) -> Result<HashMap<String, Vec<Transfer>>, DbError> {
+        use crate::schema::blocks::dsl::blocks;
         use crate::schema::transfers::dsl::{
             height as height_col, to_account as to_account_col, transfers,
         };
         use itertools::Itertools;
         let mut conn = self.pool.get().unwrap();
         let min_height = min_height.unwrap_or(0);
-        let received_transfers = transfers
+        let received_transfers: Vec<(Transfer, Block)> = transfers
+            .inner_join(blocks)
             .filter(to_account_col.eq(to_account))
             .filter(height_col.ge(min_height))
-            .select(Transfer::as_select())
-            .load(&mut conn)?;
+            .select((Transfer::as_select(), Block::as_select()))
+            .load::<(Transfer, Block)>(&mut conn)?;
+        //TODO: Create a model to store transfers
         let multi_step_transfers_pact_ids = received_transfers
             .iter()
-            .filter_map(|t| t.pact_id.clone())
+            .filter_map(|t| t.0.pact_id.clone())
             .collect::<Vec<String>>();
         let multi_step_transfers = self.find_by_pact_id(multi_step_transfers_pact_ids)?;
         let mut simple_transfers = received_transfers
             .iter()
-            .filter(|e| e.pact_id.is_none())
-            .map(|e| (e.request_key.clone(), vec![e.clone()]))
+            .filter(|e| e.0.pact_id.is_none())
+            .map(|e| (e.0.request_key.clone(), vec![e.0.clone()]))
             .collect::<HashMap<String, Vec<Transfer>>>();
         let multi_step_transfers = multi_step_transfers
             .iter()

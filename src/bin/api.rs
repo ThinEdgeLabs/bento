@@ -89,6 +89,25 @@ async fn received_transfers(
     Ok(HttpResponse::Ok().json(transfers))
 }
 
+#[get("/transfers")]
+async fn get_transfers(
+    request: HttpRequest,
+    transfers: web::Data<TransfersRepository>,
+) -> actix_web::Result<impl Responder> {
+    let params = web::Query::<HashMap<String, String>>::from_query(request.query_string()).unwrap();
+    let from = params.get("from").map(|e| e.to_string());
+    let to = params.get("to").map(|e| e.to_string());
+    let min_height = match params.get("min_height").map(|h| h.parse::<i64>()) {
+        Some(Ok(height)) => Some(height),
+        Some(Err(_)) => return Ok(HttpResponse::BadRequest().body("Invalid min_height")),
+        None => None,
+    };
+    let transfers = web::block(move || transfers.find(from, to, min_height))
+        .await?
+        .map_err(error::ErrorInternalServerError)?;
+    Ok(HttpResponse::Ok().json(transfers))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
@@ -106,6 +125,7 @@ async fn main() -> std::io::Result<()> {
             .service(balance)
             .service(all_balances)
             .service(received_transfers)
+            .service(get_transfers)
     })
     .bind(("0.0.0.0", 8181))?
     .run()

@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::Serialize;
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize)]
 #[diesel(table_name = crate::schema::blocks)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Block {
@@ -23,7 +23,7 @@ pub struct Block {
     pub weight: BigDecimal,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, AsChangeset)]
 #[diesel(table_name = crate::schema::events)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Event {
@@ -85,7 +85,8 @@ pub struct Balance {
     pub module: String,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq)]
+#[derive(Queryable, Selectable, Insertable, Associations, Debug, Clone, PartialEq, Eq)]
+#[diesel(belongs_to(Block, foreign_key = block))]
 #[diesel(table_name = crate::schema::transfers)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[derive(Serialize)]
