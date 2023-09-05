@@ -610,6 +610,7 @@ impl TransfersRepository {
             .inner_join(blocks)
             .select((Transfer::as_select(), Block::as_select()))
             .load::<(Transfer, Block)>(&mut conn)?;
+        //TODO: Create a model for this instead of using a tuple
         return Ok(transfers_with_blocks);
     }
 
@@ -639,6 +640,8 @@ impl TransfersRepository {
         let mut simple_transfers = received_transfers
             .iter()
             .filter(|e| e.0.pact_id.is_none())
+            //FIXME: We're using the request_key as key, but it's not unique as there can be
+            //multiple transfers with the same request_key
             .map(|e| (e.0.request_key.clone(), vec![e.0.clone()]))
             .collect::<HashMap<String, Vec<Transfer>>>();
         let multi_step_transfers = multi_step_transfers

@@ -248,11 +248,15 @@ mod tests {
             ])
             .unwrap();
         backfill_chain(0, 1, &events_repository, &transfers_repository, None).unwrap();
-        let bob_incoming_transfers = transfers_repository.find_received("bob", None).unwrap();
+        let bob_incoming_transfers = transfers_repository
+            .find(None, Some(String::from("bob")), None)
+            .unwrap();
         println!("{:#?}", bob_incoming_transfers);
-        assert!(bob_incoming_transfers.keys().len() == 3);
-        let alice_incoming_transfers = transfers_repository.find_received("alice", None).unwrap();
-        assert!(alice_incoming_transfers.keys().len() == 1);
+        assert!(bob_incoming_transfers.len() == 3);
+        let alice_incoming_transfers = transfers_repository
+            .find(None, Some(String::from("alice")), None)
+            .unwrap();
+        assert!(alice_incoming_transfers.len() == 1);
     }
 
     #[test]
