@@ -435,7 +435,7 @@ impl TransfersRepository {
             .collect::<HashMap<i64, BigDecimal>>();
         let mut balance: HashMap<i64, BigDecimal> = HashMap::new();
         for (chain, amount) in &incoming_amounts_per_chain {
-            let outgoing_amount = match outgoing_amounts_per_chain.get(&chain) {
+            let outgoing_amount = match outgoing_amounts_per_chain.get(chain) {
                 Some(amount) => amount.clone(),
                 None => BigDecimal::from(0),
             };
@@ -504,7 +504,7 @@ impl TransfersRepository {
             let mut balance: HashMap<i64, BigDecimal> = HashMap::new();
             for (chain, amount) in amounts {
                 let outgoing_amount = match outgoing_amounts_by_module.get(module) {
-                    Some(amounts) => match amounts.get(&chain) {
+                    Some(amounts) => match amounts.get(chain) {
                         Some(amount) => amount.clone(),
                         None => BigDecimal::from(0),
                     },
@@ -544,7 +544,7 @@ impl TransfersRepository {
             .select((Transfer::as_select(), Block::as_select()))
             .load::<(Transfer, Block)>(&mut conn)?;
         //TODO: Create a model for this instead of using a tuple
-        return Ok(transfers_with_blocks);
+        Ok(transfers_with_blocks)
     }
 
     pub fn find_received(

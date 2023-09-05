@@ -15,9 +15,9 @@ pub async fn fill_gaps<'a>(
     let cut = chainweb_client.get_cut().await.unwrap();
     let gaps = cut
         .hashes
-        .iter()
-        .map(|(chain, _)| {
-            let gaps = find_gaps(&chain, blocks_repo).unwrap();
+        .keys()
+        .map(|chain| {
+            let gaps = find_gaps(chain, blocks_repo).unwrap();
             let missing_blocks = gaps
                 .iter()
                 .map(|gap| gap.1.height - gap.0.height - 1)
@@ -47,16 +47,15 @@ pub async fn fill_gaps<'a>(
                             lower: vec![Hash(lower_bound.hash.clone())],
                             upper: vec![Hash(upper_bound.hash.clone())],
                         },
-                        &chain,
+                        chain,
                         false,
                     )
                     .await
             })
             .buffer_unordered(4)
             .for_each(|result| {
-                match result {
-                    Err(e) => log::error!("Error filling gap: {:?}", e),
-                    _ => {}
+                if let Err(e) = result {
+                    log::error!("Error filling gap: {:?}", e);
                 }
                 async {}
             })

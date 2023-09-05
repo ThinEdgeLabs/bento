@@ -194,7 +194,7 @@ impl<'a> Indexer<'a> {
             .unwrap();
         let blocks = self.build_blocks(&headers, &payloads);
 
-        if force_update == true {
+        if force_update {
             blocks
                 .iter()
                 .for_each(|block| match self.delete_block_data(block) {
@@ -214,13 +214,13 @@ impl<'a> Indexer<'a> {
             .fetch_transactions_results(&request_keys[..], chain_id)
             .await?;
         let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
-        if txs.len() > 0 {
+        if !txs.is_empty() {
             match self.transactions.insert_batch(&txs) {
                 Ok(inserted) => log::info!("Inserted {} transactions", inserted),
                 Err(e) => panic!("Error inserting transactions: {:#?}", e),
             }
             let events = get_events_from_txs(&tx_results, &signed_txs_by_hash);
-            if events.len() > 0 {
+            if !events.is_empty() {
                 match self.events.insert_batch(&events) {
                     Ok(inserted) => {
                         log::info!("Inserted {} events", inserted);
@@ -255,7 +255,7 @@ impl<'a> Indexer<'a> {
             //TODO: Should we retry here?
             return Err("Unable to retrieve payload".into());
         }
-        let block = build_block(&header, &payloads[0]);
+        let block = build_block(header, &payloads[0]);
         match self.save_block(&block) {
             Err(e) => {
                 log::error!("Error saving block: {:#?}", e);
@@ -597,7 +597,7 @@ fn build_events(
         for (i, event) in pact_result.events.as_ref().unwrap().iter().enumerate() {
             let module = match &event.module.namespace {
                 Some(namespace) => format!("{}.{}", namespace, event.module.name),
-                None => format!("{}", &event.module.name),
+                None => event.module.name.to_string(),
             };
             let event = crate::models::Event {
                 block: pact_result.metadata.block_hash.clone(),

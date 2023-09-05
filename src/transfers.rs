@@ -83,7 +83,7 @@ pub fn process_transfers(
     let transfers = events
         .iter()
         .filter(|event| is_balance_transfer(event))
-        .map(|event| make_transfer(event))
+        .map(make_transfer)
         .collect::<Vec<Transfer>>();
     // Number of parameters in one SQL query is limited to 65535, so we need to split the batch
     if transfers.len() > 6000 {
@@ -122,7 +122,7 @@ fn make_transfer(event: &Event) -> Transfer {
     };
 
     Transfer {
-        amount: amount,
+        amount,
         block: event.block.clone(),
         chain_id: event.chain_id,
         from_account: sender,
