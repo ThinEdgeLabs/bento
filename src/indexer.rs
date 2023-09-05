@@ -433,8 +433,8 @@ impl<'a> Indexer<'a> {
         request_keys: &[String],
         chain: &ChainId,
     ) -> Result<Vec<PactTransactionResult>, Box<dyn Error>> {
-        let transactions_per_request = 20;
-        let concurrent_requests = 1;
+        let transactions_per_request = 1;
+        let concurrent_requests = 10;
         let mut results: Vec<PactTransactionResult> = vec![];
         //TODO: Try to use tokio::StreamExt instead or figure out a way to return a Result
         // so we can handle errors if any of the requests fail

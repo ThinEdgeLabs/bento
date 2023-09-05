@@ -392,8 +392,7 @@ impl ChainwebClient {
     ) -> Result<HashMap<String, PactTransactionResult>, Box<dyn Error>> {
         let endpoint = format!("/chain/{chain}/pact/api/v1/poll");
         let url = Url::parse(&format!("{}{}", self.base_url, endpoint)).unwrap();
-        println!("request keys: {}", request_keys.len());
-        let response = reqwest::Client::new()
+        let response: HashMap<String, PactTransactionResult> = reqwest::Client::new()
             .post(url)
             .json(&serde_json::json!({ "requestKeys": request_keys }))
             .send()
