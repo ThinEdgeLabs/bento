@@ -71,6 +71,7 @@ async fn balance(
     Ok(HttpResponse::Ok().json(balance))
 }
 
+#[deprecated(note = "Use /transfers instead, this endpoint will be removed in the near future")]
 #[get("/transfers/{account}/received")]
 async fn received_transfers(
     path: web::Path<String>,
