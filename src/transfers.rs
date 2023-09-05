@@ -77,7 +77,7 @@ fn is_balance_transfer(event: &Event) -> bool {
 }
 
 pub fn process_transfers(
-    events: &Vec<Event>,
+    events: &[Event],
     repository: &TransfersRepository,
 ) -> Result<(), DbError> {
     let transfers = events
@@ -199,9 +199,6 @@ mod tests {
         let blocks_repository = BlocksRepository { pool: pool.clone() };
         let events_repository = EventsRepository { pool: pool.clone() };
         let transfers_repository = TransfersRepository { pool: pool.clone() };
-        events_repository.delete_all().unwrap();
-        transfers_repository.delete_all().unwrap();
-        blocks_repository.delete_all().unwrap();
         blocks_repository
             .insert_batch(&[
                 make_block(0, 0, "block-0".to_string()),
@@ -250,15 +247,19 @@ mod tests {
             ])
             .unwrap();
         backfill_chain(0, 1, &events_repository, &transfers_repository, None).unwrap();
+
         let bob_incoming_transfers = transfers_repository
             .find(None, Some(String::from("bob")), None)
             .unwrap();
-        println!("{:#?}", bob_incoming_transfers);
         assert!(bob_incoming_transfers.len() == 3);
         let alice_incoming_transfers = transfers_repository
             .find(None, Some(String::from("alice")), None)
             .unwrap();
         assert!(alice_incoming_transfers.len() == 1);
+
+        events_repository.delete_all().unwrap();
+        transfers_repository.delete_all().unwrap();
+        blocks_repository.delete_all().unwrap();
     }
 
     #[test]

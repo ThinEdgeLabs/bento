@@ -142,10 +142,10 @@ fn find_gaps_in_range(
             max_height -= batch_size;
             continue;
         }
-        let mut previous_block = if last_block.is_none() {
-            blocks.last().unwrap().clone()
+        let mut previous_block = if let Some(last) = last_block {
+            last
         } else {
-            last_block.unwrap()
+            blocks.last().unwrap().clone()
         };
 
         for block in blocks.iter() {
@@ -195,7 +195,6 @@ mod tests {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
         let blocks = BlocksRepository { pool: pool.clone() };
-        blocks.delete_all().unwrap();
         blocks
             .insert_batch(&vec![
                 make_block(0, 0),
@@ -209,6 +208,7 @@ mod tests {
 
         let chain = ChainId(0);
         assert!(find_gaps(&chain, &blocks).unwrap().is_empty());
+        blocks.delete_all().unwrap();
     }
     #[test]
     #[serial]
@@ -216,7 +216,6 @@ mod tests {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
         let blocks = BlocksRepository { pool: pool.clone() };
-        blocks.delete_all().unwrap();
         blocks
             .insert_batch(&vec![
                 make_block(0, 0),
@@ -235,7 +234,9 @@ mod tests {
             .iter()
             .map(|(a, b)| (a.height, b.height))
             .collect::<Vec<_>>();
+        println!("{:?}", gaps_heights);
         assert!(gaps_heights == vec![(5, 9), (2, 4)]);
+        blocks.delete_all().unwrap();
     }
 
     #[test]
@@ -244,7 +245,6 @@ mod tests {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
         let blocks = BlocksRepository { pool: pool.clone() };
-        blocks.delete_all().unwrap();
         blocks
             .insert_batch(&vec![
                 make_block(0, 0),
@@ -266,5 +266,6 @@ mod tests {
             .map(|(a, b)| (a.height, b.height))
             .collect::<Vec<_>>();
         assert!(gaps_heights == vec![(8, 10), (6, 8), (2, 4)]);
+        blocks.delete_all().unwrap();
     }
 }

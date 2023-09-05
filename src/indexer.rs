@@ -366,7 +366,7 @@ impl<'a> Indexer<'a> {
 
     /// Builds the list of blocks from the given headers and payloads
     /// and inserts them in the database in a single transaction.
-    fn build_blocks(&self, headers: &Vec<BlockHeader>, payloads: &Vec<BlockPayload>) -> Vec<Block> {
+    fn build_blocks(&self, headers: &[BlockHeader], payloads: &[BlockPayload]) -> Vec<Block> {
         let headers_by_payload_hash = headers
             .iter()
             .map(|e| (e.payload_hash.clone(), e))
@@ -498,7 +498,7 @@ fn build_block(header: &BlockHeader, block_payload: &BlockPayload) -> Block {
 
 fn get_transactions_from_payload(
     signed_txs: &HashMap<String, SignedTransaction>,
-    tx_results: &Vec<PactTransactionResult>,
+    tx_results: &[PactTransactionResult],
     chain_id: &ChainId,
 ) -> Vec<Transaction> {
     tx_results
@@ -575,7 +575,7 @@ fn build_transaction(
 }
 
 fn get_events_from_txs(
-    tx_results: &Vec<PactTransactionResult>,
+    tx_results: &[PactTransactionResult],
     signed_txs_by_hash: &HashMap<String, SignedTransaction>,
 ) -> Vec<Event> {
     tx_results
@@ -630,6 +630,7 @@ mod tests {
         chainweb_client::{BlockPayload, Sig},
         db,
     };
+    use serial_test::serial;
 
     // #[test]
     // fn test_save_blocks() {
@@ -684,7 +685,13 @@ mod tests {
     //     assert_eq!(block.hash, hash);
     // }
 
+    /// Dealing with duplicate blocks (this only happens through the headers stream):
+    /// - try to insert the block
+    /// - if it fails, check if the block is already in the db
+    /// - if it is, delete the block, transactions and events
+    /// - insert the block again
     #[test]
+    #[serial]
     fn test_save_block() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
@@ -694,16 +701,12 @@ mod tests {
         let transactions = TransactionsRepository { pool: pool.clone() };
         let transfers = TransfersRepository { pool: pool.clone() };
 
-        transactions.delete_all().unwrap();
-        events.delete_all().unwrap();
-        blocks.delete_all().unwrap();
-
         let indexer = Indexer {
             chainweb_client: &client,
-            blocks,
-            events,
-            transactions,
-            transfers,
+            blocks: blocks.clone(),
+            events: events.clone(),
+            transactions: transactions.clone(),
+            transfers: transfers.clone(),
         };
 
         let orphan_header = BlockHeader {
@@ -740,7 +743,6 @@ mod tests {
             .find_by_hash(&orphan_header.hash, chain_id)
             .unwrap();
         assert!(block.is_some());
-        println!("{:#?}", block);
         let header = BlockHeader {
             hash: "new_hash".to_string(),
             ..orphan_header
@@ -749,14 +751,11 @@ mod tests {
         indexer.save_block(&block).unwrap();
         let block = indexer.blocks.find_by_hash(&"new_hash", chain_id).unwrap();
         assert!(block.is_some());
-        println!("{:#?}", block);
         let orphan_block = indexer.blocks.find_by_hash(&hash, chain_id).unwrap();
         assert!(orphan_block.is_none());
-        // Dealing with duplicate blocks (this only happens through the headers stream):
-        // - try to insert the block
-        // - if it fails, check if the block is already in the db
-        // - if it is, delete the block, transactions and events
-        // - insert the block again
+        transactions.delete_all().unwrap();
+        events.delete_all().unwrap();
+        blocks.delete_all().unwrap();
     }
 
     #[test]

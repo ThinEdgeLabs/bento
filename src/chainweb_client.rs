@@ -428,6 +428,12 @@ impl ChainwebClient {
     }
 }
 
+impl Default for ChainwebClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
