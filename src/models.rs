@@ -72,19 +72,6 @@ pub struct Transaction {
     pub tx_id: Option<i64>,
 }
 
-#[derive(Queryable, Selectable, Insertable, Debug, Clone)]
-#[diesel(table_name = crate::schema::balances)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-#[derive(Serialize)]
-pub struct Balance {
-    pub account: String,
-    pub amount: BigDecimal,
-    pub chain_id: i64,
-    pub height: i64,
-    pub qual_name: String,
-    pub module: String,
-}
-
 #[derive(Queryable, Selectable, Insertable, Associations, Debug, Clone, PartialEq, Eq)]
 #[diesel(belongs_to(Block, foreign_key = block))]
 #[diesel(table_name = crate::schema::transfers)]
