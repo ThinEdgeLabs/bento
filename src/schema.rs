@@ -1,17 +1,6 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    balances (account, chain_id, qual_name) {
-        account -> Varchar,
-        chain_id -> Int8,
-        height -> Int8,
-        qual_name -> Varchar,
-        module -> Varchar,
-        amount -> Numeric,
-    }
-}
-
-diesel::table! {
     blocks (hash) {
         chain_id -> Int8,
         creation_time -> Timestamptz,
@@ -97,7 +86,6 @@ diesel::joinable!(transactions -> blocks (block));
 diesel::joinable!(transfers -> blocks (block));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    balances,
     blocks,
     events,
     transactions,
