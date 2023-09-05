@@ -93,7 +93,6 @@ pub fn process_transfers(
     } else {
         repository.insert_batch(&transfers)?;
     }
-
     Ok(())
 }
 
@@ -137,42 +136,6 @@ fn make_transfer(event: &Event) -> Transfer {
     }
 }
 
-// pub fn update_account_balance(
-//     account: &str,
-//     chain_id: i64,
-//     qual_name: &str,
-//     module: &str,
-//     height: i64,
-//     change: BigDecimal,
-//     balances_repository: &BalancesRepository,
-// ) -> Result<Balance, DbError> {
-//     match balances_repository.find_by_account_chain_and_module(account, chain_id, module) {
-//         Ok(Some(balance)) => {
-//             let new_balance = Balance {
-//                 amount: balance.amount + change,
-//                 height,
-//                 ..balance
-//             };
-//             balances_repository.update(&new_balance)
-//         }
-//         Ok(None) => {
-//             let balance = Balance {
-//                 account: account.to_string(),
-//                 chain_id,
-//                 qual_name: qual_name.to_string(),
-//                 module: module.to_string(),
-//                 amount: change,
-//                 height,
-//             };
-//             balances_repository.insert(&balance)
-//         }
-//         Err(e) => {
-//             log::error!("Error updating balance: {}", e);
-//             Err(e)
-//         }
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,8 +145,53 @@ mod tests {
     use bigdecimal::BigDecimal;
     use chrono::Utc;
 
+    fn make_block(chain_id: i64, height: i64, hash: String) -> Block {
+        Block {
+            chain_id,
+            hash,
+            height,
+            parent: "parent".to_string(),
+            weight: BigDecimal::from(0),
+            creation_time: Utc::now().naive_utc(),
+            epoch: Utc::now().naive_utc(),
+            flags: BigDecimal::from(0),
+            miner: "miner".to_string(),
+            nonce: BigDecimal::from(0),
+            payload: "payload".to_string(),
+            pow_hash: "".to_string(),
+            predicate: "predicate".to_string(),
+            target: BigDecimal::from(1),
+        }
+    }
+
+    fn make_transfer_event(
+        block: String,
+        height: i64,
+        idx: i64,
+        chain_id: i64,
+        from: String,
+        to: String,
+        amount: f64,
+    ) -> Event {
+        use rand::distributions::{Alphanumeric, DistString};
+        Event {
+            block: block.clone(),
+            chain_id,
+            height,
+            idx,
+            module: "coin".to_string(),
+            module_hash: "module-hash".to_string(),
+            name: "TRANSFER".to_string(),
+            params: serde_json::json!([from, to, amount]),
+            param_text: "param-text".to_string(),
+            qual_name: "coin.TRANSFER".to_string(),
+            request_key: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
+            pact_id: None,
+        }
+    }
+
     #[test]
-    fn test_transers_backfill() {
+    fn test_transfers_backfill() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
         let blocks_repository = BlocksRepository { pool: pool.clone() };
@@ -192,113 +200,59 @@ mod tests {
         events_repository.delete_all().unwrap();
         transfers_repository.delete_all().unwrap();
         blocks_repository.delete_all().unwrap();
-        let block = Block {
-            chain_id: 0,
-            hash: "block-0".to_string(),
-            height: 0,
-            parent: "parent".to_string(),
-            weight: BigDecimal::from(0),
-            creation_time: Utc::now().naive_utc(),
-            epoch: Utc::now().naive_utc(),
-            flags: BigDecimal::from(0),
-            miner: "miner".to_string(),
-            nonce: BigDecimal::from(0),
-            payload: "payload".to_string(),
-            pow_hash: "".to_string(),
-            predicate: "predicate".to_string(),
-            target: BigDecimal::from(1),
-        };
-        blocks_repository.insert(&block).unwrap();
-        let event_1 = Event {
-            block: "block-0".to_string(),
-            chain_id: 0,
-            height: 0,
-            idx: 0,
-            module: "coin".to_string(),
-            module_hash: "module-hash".to_string(),
-            name: "TRANSFER".to_string(),
-            params: serde_json::json!(["", "alice", 100.1]),
-            param_text: "param-text".to_string(),
-            qual_name: "coin.TRANSFER".to_string(),
-            request_key: "request-key-a".to_string(),
-            pact_id: None,
-        };
-        let event_2 = Event {
-            block: "block-0".to_string(),
-            chain_id: 0,
-            height: 0,
-            idx: 1,
-            module: "coin".to_string(),
-            module_hash: "module-hash".to_string(),
-            name: "TRANSFER".to_string(),
-            params: serde_json::json!(["alice", "bob", 10.0]),
-            param_text: "param-text".to_string(),
-            qual_name: "coin.TRANSFER".to_string(),
-            request_key: "request-key-b".to_string(),
-            pact_id: None,
-        };
-        let block = Block {
-            chain_id: 0,
-            hash: "block-2".to_string(),
-            height: 2,
-            parent: "parent".to_string(),
-            weight: BigDecimal::from(0),
-            creation_time: Utc::now().naive_utc(),
-            epoch: Utc::now().naive_utc(),
-            flags: BigDecimal::from(0),
-            miner: "miner".to_string(),
-            nonce: BigDecimal::from(0),
-            payload: "payload".to_string(),
-            pow_hash: "".to_string(),
-            predicate: "predicate".to_string(),
-            target: BigDecimal::from(1),
-        };
-        blocks_repository.insert(&block).unwrap();
-        let event_3 = Event {
-            block: "block-2".to_string(),
-            chain_id: 0,
-            height: 2,
-            idx: 0,
-            module: "coin".to_string(),
-            module_hash: "module-hash".to_string(),
-            name: "TRANSFER".to_string(),
-            params: serde_json::json!(["alice", "bob", 10.1]),
-            param_text: "param-text".to_string(),
-            qual_name: "coin.TRANSFER".to_string(),
-            request_key: "request-key-b".to_string(),
-            pact_id: Some(String::from("pact-id")),
-        };
-        let event_4 = Event {
-            block: "block-2".to_string(),
-            chain_id: 0,
-            height: 2,
-            idx: 1,
-            module: "coin".to_string(),
-            module_hash: "module-hash".to_string(),
-            name: "TRANSFER".to_string(),
-            params: serde_json::json!(["alice", "bob", 5.5]),
-            param_text: "param-text".to_string(),
-            qual_name: "coin.TRANSFER".to_string(),
-            request_key: "request-key-b".to_string(),
-            pact_id: event_3.pact_id.clone(),
-        };
-        events_repository
-            .insert_batch(&[event_1, event_2, event_3, event_4])
+        blocks_repository
+            .insert_batch(&[
+                make_block(0, 0, "block-0".to_string()),
+                make_block(0, 1, "block-1".to_string()),
+                make_block(0, 2, "block-2".to_string()),
+            ])
             .unwrap();
-        let chain_id = 0;
-        let batch_size = 1;
-        backfill_chain(
-            chain_id,
-            batch_size,
-            &events_repository,
-            &transfers_repository,
-            None,
-        )
-        .unwrap();
+        events_repository
+            .insert_batch(&[
+                make_transfer_event(
+                    "block-0".to_string(),
+                    0,
+                    0,
+                    0,
+                    "bob".to_string(),
+                    "alice".to_string(),
+                    100.1,
+                ),
+                make_transfer_event(
+                    "block-0".to_string(),
+                    0,
+                    1,
+                    0,
+                    "alice".to_string(),
+                    "bob".to_string(),
+                    10.0,
+                ),
+                make_transfer_event(
+                    "block-2".to_string(),
+                    2,
+                    0,
+                    0,
+                    "alice".to_string(),
+                    "bob".to_string(),
+                    10.1,
+                ),
+                make_transfer_event(
+                    "block-2".to_string(),
+                    2,
+                    1,
+                    0,
+                    "alice".to_string(),
+                    "bob".to_string(),
+                    5.5,
+                ),
+            ])
+            .unwrap();
+        backfill_chain(0, 1, &events_repository, &transfers_repository, None).unwrap();
         let bob_incoming_transfers = transfers_repository.find_received("bob", None).unwrap();
-        assert!(bob_incoming_transfers.len() == 3);
+        println!("{:#?}", bob_incoming_transfers);
+        assert!(bob_incoming_transfers.keys().len() == 3);
         let alice_incoming_transfers = transfers_repository.find_received("alice", None).unwrap();
-        assert!(alice_incoming_transfers.len() == 1);
+        assert!(alice_incoming_transfers.keys().len() == 1);
     }
 
     #[test]
@@ -453,5 +407,10 @@ mod tests {
             pact_id: None,
         };
         assert!(is_balance_transfer(&event));
+        let event = Event {
+            name: "NOT_TRANSFER".to_string(),
+            ..event
+        };
+        assert!(is_balance_transfer(&event) == false);
     }
 }

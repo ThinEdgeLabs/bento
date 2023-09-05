@@ -119,7 +119,7 @@ impl BlocksRepository {
         Ok(new_block)
     }
 
-    pub fn insert_batch(&self, blocks: &Vec<Block>) -> Result<Vec<Block>, DbError> {
+    pub fn insert_batch(&self, blocks: &[Block]) -> Result<Vec<Block>, DbError> {
         use crate::schema::blocks::dsl::blocks as blocks_table;
         let mut conn = self.pool.get().unwrap();
         let inserted = diesel::insert_into(blocks_table)
@@ -631,7 +631,6 @@ impl TransfersRepository {
             .filter(height_col.ge(min_height))
             .select((Transfer::as_select(), Block::as_select()))
             .load::<(Transfer, Block)>(&mut conn)?;
-        //TODO: Create a model to store transfers
         let multi_step_transfers_pact_ids = received_transfers
             .iter()
             .filter_map(|t| t.0.pact_id.clone())
