@@ -144,6 +144,7 @@ mod tests {
     use crate::repository::BlocksRepository;
     use bigdecimal::BigDecimal;
     use chrono::Utc;
+    use serial_test::serial;
 
     fn make_block(chain_id: i64, height: i64, hash: String) -> Block {
         Block {
@@ -191,6 +192,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_transfers_backfill() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();

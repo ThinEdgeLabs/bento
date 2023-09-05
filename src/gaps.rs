@@ -169,6 +169,7 @@ mod tests {
     use crate::repository::BlocksRepository;
     use bigdecimal::BigDecimal;
     use chrono::Utc;
+    use serial_test::serial;
 
     fn make_block(chain_id: i64, height: i64) -> Block {
         Block {
@@ -190,6 +191,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_find_gaps_returns_an_empty_vec_if_no_gaps_were_found() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
@@ -210,6 +212,7 @@ mod tests {
         assert!(find_gaps(&chain, &blocks).unwrap().is_empty());
     }
     #[test]
+    #[serial]
     fn test_find_gaps() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
@@ -237,6 +240,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_find_gaps_in_range() {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
