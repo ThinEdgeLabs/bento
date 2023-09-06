@@ -1,14 +1,17 @@
-use std::collections::HashMap;
-use std::time::Instant;
-
+use actix_web::{error, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use bento::db;
 use bento::models::*;
 use bento::repository::*;
 use bigdecimal::BigDecimal;
 use dotenvy::dotenv;
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::time::Instant;
 
-use actix_web::{error, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+#[derive(Deserialize)]
+struct RequestKeys {
+    request_keys: Vec<String>,
+}
 
 #[get("/tx/{request_key}")]
 async fn tx(
@@ -27,11 +30,6 @@ async fn tx(
     })
 }
 
-#[derive(Deserialize)]
-struct RequestKeys {
-    request_keys: Vec<String>,
-}
-
 #[post("/txs")]
 async fn txs(
     body: web::Json<RequestKeys>,
@@ -41,7 +39,6 @@ async fn txs(
         web::block(move || transactions.find_all_related(&body.request_keys))
             .await?
             .map_err(error::ErrorInternalServerError)?;
-
     Ok(HttpResponse::Ok().json(result))
 }
 
