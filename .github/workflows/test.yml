@@ -48,9 +48,9 @@ jobs:
         run: cargo install diesel_cli --no-default-features --features postgres
       - name: Create Test DBs
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bento_test
         run: |
-          diesel database create
+          diesel database setup
           diesel migration run
       - name: cargo test --locked
         run: cargo test --locked --all-features --all-targets
