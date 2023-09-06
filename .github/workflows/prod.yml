@@ -23,7 +23,7 @@ jobs:
           dest: 'root@${{ secrets.HOST }}:/root/bento'
 
       - name: Start service
-        uses: fifsky/ssh-action@v0.0.4
+        uses: fifsky/ssh-action@v0.0.6
         timeout-minutes: 6
         with:
           command: |
