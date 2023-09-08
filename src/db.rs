@@ -9,7 +9,14 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 pub type DbError = Box<dyn Error + Send + Sync + 'static>;
 
 pub fn initialize_db_pool() -> DbPool {
-    let database_url = env::var("DATABASE_URL").expect("Missing DATABASE_URL");
+    let postgres_user = env::var("POSTGRES_USER").expect("Missing POSTGRES_USER");
+    let postgres_password = env::var("POSTGRES_PASSWORD").expect("Missing POSTGRES_PASSWORD");
+    let postgres_host = env::var("POSTGRES_HOST").expect("Missing POSTGRES_HOST");
+    let postgres_db = env::var("POSTGRES_DB").expect("Missing POSTGRES_DB");
+    let database_url = format!(
+        "postgres://{}:{}@{}/{}",
+        postgres_user, postgres_password, postgres_host, postgres_db
+    );
     let manager = r2d2::ConnectionManager::<PgConnection>::new(database_url);
     r2d2::Pool::builder()
         .build(manager)

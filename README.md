@@ -11,7 +11,7 @@ Bento is an indexing solution for [Kadena](https://kadena.io) blockchain written
 * HTTP API
 
 ## Coming soon
-* an easy way to extend it by indexing custom modules (eg. Marmalade)
+* an easy way to extend it and index any custom modules (eg. Marmalade)
 
 ## Setup
 
@@ -86,26 +86,24 @@ cargo install diesel_cli --no-default-features --features postgres
 docker compose up -d
 ```
 
-7. Create the database tables using diesel:
-```
-diesel migration run
-```
-Now let's also create the database used for tests:
+7. Create the database used for tests:
 ```
 diesel database setup --database-url=postgres://postgres:postgres@localhost/bento_test
 ```
+
 8. To confirm everything is setup correctly, try running the test suite:
 ```bash
 cargo test
 ```
-9. You should now be able to start bento services using cargo:
+
+9. Start the indexer using cargo:
 ```
 cargo run --bin indexer
 ```
 
 *TODO: Implement --help for indexer*
 
-9. Run the api using cargo:
+9. Start the api using cargo:
 ```
 cargo run --bin api
 ```
