@@ -3,17 +3,24 @@ use bento::db;
 use bento::gaps;
 use bento::indexer::*;
 use bento::repository::*;
-use bento::transfers;
+use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
-use std::env;
-use std::process;
 
-/// Available commands:
-/// - `cargo run --bin indexer` - index blocks from current height
-/// - `cargo run --bin indexer -- --backfill` - index all blocks from current height to genesis
-/// - `cargo run --bin indexer -- --backfill-range <min-height> <max-height> <chain-id> [--force-update]`
-/// - `cargo run --bin indexer -- --gaps` - fill gaps
-/// - `cargo run --bin indexer -- --transfers` - backfill transfers
+#[derive(Parser)]
+/// Indexes blocks from chainweb starting from current block unless a subcommand is provided.
+struct IndexerCli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Backfill blocks
+    Backfill,
+    /// Index missed blocks
+    Gaps,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
@@ -35,48 +42,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         transfers: transfers_repo.clone(),
     };
 
-    let args: Vec<String> = env::args().collect();
-    let backfill = args.contains(&"--backfill".to_string());
-    let gaps = args.contains(&"--gaps".to_string());
-    let backfill_range = args.contains(&"--backfill-range".to_string());
-    let transfers = args.contains(&"--transfers".to_string());
-
-    if backfill {
-        log::info!("Backfilling blocks...");
-        indexer.backfill().await?;
-    } else if backfill_range {
-        if args.len() < 5 {
-            log::error!("Not enough arguments for backfill-range.");
-            log::info!("Usage: cargo run --bin indexer -- --backfill-range <min-height> <max-height> <chain-id> [--force-update]");
-            process::exit(1);
+    let args = IndexerCli::parse();
+    match args.command {
+        Some(Command::Backfill) => {
+            log::info!("Backfilling blocks...");
+            indexer.backfill().await?;
         }
-        let min_height = args[2].parse::<i64>().unwrap();
-        let max_height = args[3].parse::<i64>().unwrap();
-        let chain_id = args[4].parse::<i64>().unwrap();
-        let force_update = args.contains(&"--force-update".to_string());
-        indexer
-            .backfill_range(min_height, max_height, chain_id, force_update)
-            .await?;
-    } else if gaps {
-        log::info!("Filling gaps...");
-        gaps::fill_gaps(&chainweb_client, &blocks, &indexer).await?;
-    } else if transfers {
-        log::info!("Backfilling transfers...");
-        if args.len() >= 3 {
-            let chain_id = args[2].parse::<i64>().unwrap();
-            let mut starting_max_height = None;
-            if args.len() == 4 {
-                starting_max_height = Some(args[3].parse::<i64>().unwrap());
-            }
-            log::info!("Chain ID: {}", chain_id);
-            transfers::backfill_chain(chain_id, 50, &events, &transfers_repo, starting_max_height)
-                .unwrap();
-        } else {
-            transfers::backfill(50, &chainweb_client, &events, &transfers_repo).await?;
+        Some(Command::Gaps) => {
+            log::info!("Filling gaps...");
+            gaps::fill_gaps(&chainweb_client, &blocks, &indexer).await?;
         }
-    } else {
-        log::info!("Indexing blocks...");
-        indexer.listen_headers_stream().await?;
+        None => {
+            log::info!("Indexing blocks...");
+            indexer.listen_headers_stream().await?;
+        }
     }
 
     Ok(())

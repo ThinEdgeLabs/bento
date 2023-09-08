@@ -112,7 +112,7 @@ async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     dotenv().ok();
     let port = env::var("API_PORT")
-        .expect("Missing API_PORT")
+        .unwrap_or_else(|_| "80".to_string())
         .parse::<u16>()
         .expect("Invalid API_PORT");
 
