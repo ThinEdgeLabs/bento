@@ -48,7 +48,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 cargo build --release
 ```
-The binaries are then available in `./target/release/api` and `./target/release/indexer`.
+The binaries are available at `./target/release/api` and `./target/release/indexer`.
 
 ## Usage
 
@@ -81,7 +81,7 @@ cargo install diesel_cli --no-default-features --features postgres
 
 5. Create a `.env` file in the project directory with database connection details, Chainweb node host and others. See [.env-sample](.env-sample) for an example how this should look like.
 
-6. Start the db and adminer containers:
+6. Start postgres and adminer containers:
 ```
 docker compose up -d
 ```
@@ -166,7 +166,7 @@ If you want to contribute to Bento, please follow the [coding style rules](#codi
 
 <!-- REUSE-IgnoreStart -->
 
-Copyright 2023 ThinEdgeLabs LLC
+Copyright 2023 ThinEdgeLabs LLC.
 
 Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
 [https://www.apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0)> or the MIT license

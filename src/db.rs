@@ -5,7 +5,7 @@ use std::env;
 use std::error::Error;
 
 pub type DbPool = r2d2::Pool<r2d2::ConnectionManager<PgConnection>>;
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 pub type DbError = Box<dyn Error + Send + Sync + 'static>;
 
 pub fn initialize_db_pool() -> DbPool {
