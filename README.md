@@ -15,15 +15,15 @@ Bento is an indexing solution for [Kadena](https://kadena.io) blockchain written
 
 ## Setup
 
-### Using Docker
+### Prerequisites
 
-#### Prerequisites
-
-* [Docker]
 * [Chainweb Node](https://github.com/kadena-io/chainweb-node)
+* [Docker] (optional)
+
+#### Using Docker
 
 The fastest way is to use Docker / Docker Compose  as the repo already comes with a docker-compose configuration file.
-Alternatively you would need to install PostgreSQL, build with cargo (or use on of the available releases) and run the binaries.
+Alternatively you would need to install PostgreSQL, [rust and cargo to build](Build with Cargo) and then execute the binaries.
 
 **Important**: the `headerStream` chainweb node config needs to be set to `true`. You can check the [configuring the node](https://github.com/kadena-io/chainweb-data#configuring-the-node) section of `chainweb-data` for more details.
 
@@ -39,7 +39,7 @@ git clone git@github.com:ThinEdgeLabs/bento.git
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-### Build with Cargo
+#### Build with Cargo
 
 1. Install Rust and Cargo using [rustup].
 
@@ -52,11 +52,22 @@ The binaries are available at `./target/release/api` and `./target/release/index
 
 ## Usage
 
-API:
+If you used Docker the *indexer* and *api* services should already be up and running. Additionally you can run one of the available indexer subcommands like this:
+```bash
+# docker compose -f docker-compose.yml -f docker-compose.prod.yml run indexer [subcommand]
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run indexer backfill
+```
+
+Manually starting the services:
+
+**API**:
 ```bash
 ./target/release/api
+
+[2023-09-10T08:49:14Z INFO  actix_server::builder] starting 8 workers
+[2023-09-10T08:49:14Z INFO  actix_server::server] Actix runtime found; starting in Actix runtime
 ```
-Indexer:
+**Indexer**:
 ```bash
 By default new blocks are indexed as they are mined. For backfilling and filling gaps use the subcommands
 Usage: indexer [COMMAND]
@@ -120,9 +131,7 @@ cargo test
 cargo run --bin indexer
 ```
 
-*TODO: Implement --help for indexer*
-
-9. Start the api using cargo:
+10. Start the api using cargo:
 ```
 cargo run --bin api
 ```
