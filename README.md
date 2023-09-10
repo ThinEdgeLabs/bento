@@ -52,7 +52,23 @@ The binaries are available at `./target/release/api` and `./target/release/index
 
 ## Usage
 
-TBA
+API:
+```bash
+./target/release/api
+```
+Indexer:
+```bash
+By default new blocks are indexed as they are mined. For backfilling and filling gaps use the subcommands
+Usage: indexer [COMMAND]
+
+Commands:
+  backfill  Backfill blocks
+  gaps      Index missed blocks
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+```
 
 ## API
 
