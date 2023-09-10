@@ -386,7 +386,7 @@ impl<'a> Indexer<'a> {
     /// Dealing with duplicate blocks (this only happens through the headers stream):
     /// - try to insert the block
     /// - if it fails, check if the block is already in the db
-    /// - if it is, delete the block, transactions and events
+    /// - if it is, delete the block and associated data
     /// - insert the block again
     fn save_block(&self, block: &Block) -> Result<Block, DbError> {
         use diesel::result::DatabaseErrorKind;

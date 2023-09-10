@@ -7,7 +7,8 @@ use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 
 #[derive(Parser)]
-/// Indexes blocks from chainweb starting from current block unless a subcommand is provided.
+/// By default new blocks are indexed as they are mined. For backfilling and filling gaps use the
+/// subcommands.
 struct IndexerCli {
     #[command(subcommand)]
     command: Option<Command>,

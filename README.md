@@ -59,7 +59,10 @@ TBA
 Available endpoints:
 
 * GET /tx/{request_key} - get tx result for given request key. If it's a multi-step tx, it will return all completed steps as well.
-* POST /txs - get tx results for multiple request keys.
+* POST /txs - get tx results for multiple request keys. Payload example:
+```json
+{"request_keys": ["req-key-1", "req-key-2"]}
+```
 * GET /transfers?from={account_from}&to={account_to}&min_height={100}
 * GET /balance/{account} - get balances of all tokens for given account
 * GET /balance/{account}/{module} - get token balance on all chains for given account and module
