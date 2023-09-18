@@ -81,6 +81,7 @@ pub struct Transfer {
     pub amount: BigDecimal,
     pub block: String,
     pub chain_id: i64,
+    pub creation_time: NaiveDateTime,
     pub from_account: String,
     pub height: i64,
     pub idx: i64,

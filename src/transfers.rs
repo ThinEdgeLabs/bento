@@ -1,14 +1,17 @@
 use crate::chainweb_client::ChainwebClient;
 use crate::db::DbError;
-use crate::models::{Event, Transfer};
-use crate::repository::{EventsRepository, TransfersRepository};
+use crate::models::{Block, Event, Transfer};
+use crate::repository::{BlocksRepository, EventsRepository, TransfersRepository};
 use bigdecimal::BigDecimal;
+use chrono::NaiveDateTime;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Instant;
 
 pub async fn backfill(
     batch_size: i64,
     chainweb_client: &ChainwebClient,
+    blocks_repository: &BlocksRepository,
     events_repository: &EventsRepository,
     transfers_repository: &TransfersRepository,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -20,6 +23,7 @@ pub async fn backfill(
             chain_id as i64,
             batch_size,
             events_repository,
+            blocks_repository,
             transfers_repository,
             None,
         )
@@ -35,6 +39,7 @@ pub fn backfill_chain(
     chain_id: i64,
     batch_size: i64,
     events_repository: &EventsRepository,
+    blocks_repository: &BlocksRepository,
     transfers_repository: &TransfersRepository,
     starting_max_height: Option<i64>,
 ) -> Result<(), DbError> {
@@ -61,7 +66,12 @@ pub fn backfill_chain(
             continue;
         }
         let before = Instant::now();
-        process_transfers(&events, transfers_repository)?;
+        let blocks_hashes = events
+            .iter()
+            .map(|event| event.block.clone())
+            .collect::<Vec<String>>();
+        let blocks = &blocks_repository.find_by_hashes(&blocks_hashes)?;
+        process_transfers(&events, blocks, transfers_repository)?;
         log::info!(
             "Processed {} events in {}ms",
             events.len(),
@@ -78,25 +88,26 @@ fn is_balance_transfer(event: &Event) -> bool {
 
 pub fn process_transfers(
     events: &[Event],
+    blocks: &[Block],
     repository: &TransfersRepository,
 ) -> Result<(), DbError> {
+    let blocks_by_hash = blocks
+        .iter()
+        .map(|block| (block.hash.to_string(), block))
+        .collect::<HashMap<String, &Block>>();
     let transfers = events
         .iter()
         .filter(|event| is_balance_transfer(event))
-        .map(make_transfer)
+        .map(|event| make_transfer(event, blocks_by_hash[&event.block]))
         .collect::<Vec<Transfer>>();
-    // Number of parameters in one SQL query is limited to 65535, so we need to split the batch
-    if transfers.len() > 6000 {
-        transfers.chunks(1000).for_each(|chunk| {
-            repository.insert_batch(&chunk.to_vec()).unwrap();
-        });
-    } else {
-        repository.insert_batch(&transfers)?;
-    }
+    // Number of parameters in one SQL query is limited to 65535, so we need to split the inserts
+    transfers.chunks(1000).for_each(|chunk| {
+        repository.insert_batch(&chunk.to_vec()).unwrap();
+    });
     Ok(())
 }
 
-fn make_transfer(event: &Event) -> Transfer {
+fn make_transfer(event: &Event, block: &Block) -> Transfer {
     let sender = event.params[0].as_str().unwrap().to_string();
     let receiver = event.params[1].as_str().unwrap().to_string();
     let amount = match event.params[2].is_number() {
@@ -125,6 +136,8 @@ fn make_transfer(event: &Event) -> Transfer {
         amount,
         block: event.block.clone(),
         chain_id: event.chain_id,
+        creation_time: NaiveDateTime::from_timestamp_millis(block.creation_time.timestamp_millis())
+            .unwrap(),
         from_account: sender,
         height: event.height,
         idx: event.idx,
@@ -246,7 +259,15 @@ mod tests {
                 ),
             ])
             .unwrap();
-        backfill_chain(0, 1, &events_repository, &transfers_repository, None).unwrap();
+        backfill_chain(
+            0,
+            1,
+            &events_repository,
+            &blocks_repository,
+            &transfers_repository,
+            None,
+        )
+        .unwrap();
 
         let bob_incoming_transfers = transfers_repository
             .find(None, Some(String::from("bob")), None)
@@ -278,13 +299,18 @@ mod tests {
             request_key: "request-key".to_string(),
             pact_id: None,
         };
-        let transfer = make_transfer(&event);
+        let block = make_block(0, 0, "hash".to_string());
+        let transfer = make_transfer(&event, &block);
         assert_eq!(
             transfer,
             Transfer {
                 amount: BigDecimal::from_str("100.12324354665567").unwrap(),
                 block: "block-hash".to_string(),
                 chain_id: 0,
+                creation_time: NaiveDateTime::from_timestamp_millis(
+                    block.creation_time.timestamp_millis()
+                )
+                .unwrap(),
                 from_account: "bob".to_string(),
                 height: 0,
                 idx: 0,
@@ -300,13 +326,17 @@ mod tests {
             params: serde_json::json!(["", "alice", 10]),
             ..event.clone()
         };
-        let transfer = make_transfer(&no_sender_event);
+        let transfer = make_transfer(&no_sender_event, &block);
         assert_eq!(
             transfer,
             Transfer {
                 amount: BigDecimal::from_str("10").unwrap(),
                 block: "block-hash".to_string(),
                 chain_id: 0,
+                creation_time: NaiveDateTime::from_timestamp_millis(
+                    block.creation_time.timestamp_millis()
+                )
+                .unwrap(),
                 from_account: "".to_string(),
                 height: 0,
                 idx: 0,
@@ -321,13 +351,17 @@ mod tests {
             params: serde_json::json!(["bob", "", 10]),
             ..event
         };
-        let transfer = make_transfer(&no_receiver_event);
+        let transfer = make_transfer(&no_receiver_event, &block);
         assert_eq!(
             transfer,
             Transfer {
                 amount: BigDecimal::from_str("10").unwrap(),
                 block: "block-hash".to_string(),
                 chain_id: 0,
+                creation_time: NaiveDateTime::from_timestamp_millis(
+                    block.creation_time.timestamp_millis()
+                )
+                .unwrap(),
                 from_account: "bob".to_string(),
                 height: 0,
                 idx: 0,
@@ -356,7 +390,8 @@ mod tests {
             request_key: "request-key".to_string(),
             pact_id: None,
         };
-        let transfer = make_transfer(&event);
+        let block = make_block(0, 0, "hash".to_string());
+        let transfer = make_transfer(&event, &block);
         assert!(transfer.amount == BigDecimal::from_str("22.230409400000000000000000").unwrap());
         let event = Event {
             block: "block-hash".to_string(),
@@ -372,7 +407,7 @@ mod tests {
             request_key: "request-key".to_string(),
             pact_id: None,
         };
-        let transfer = make_transfer(&event);
+        let transfer = make_transfer(&event, &block);
         assert!(transfer.amount == BigDecimal::from(1));
     }
 
@@ -393,7 +428,8 @@ mod tests {
             request_key: "request-key".to_string(),
             pact_id: None,
         };
-        let transfer = make_transfer(&event);
+        let block = make_block(0, 0, "hash".to_string());
+        let transfer = make_transfer(&event, &block);
         assert!(transfer.amount == BigDecimal::from(0));
     }
 

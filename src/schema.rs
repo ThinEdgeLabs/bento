@@ -78,6 +78,7 @@ diesel::table! {
         request_key -> Varchar,
         to_account -> Varchar,
         pact_id -> Nullable<Varchar>,
+        creation_time -> Timestamptz,
     }
 }
 

@@ -224,7 +224,7 @@ impl<'a> Indexer<'a> {
                 match self.events.insert_batch(&events) {
                     Ok(inserted) => {
                         log::info!("Inserted {} events", inserted);
-                        match transfers::process_transfers(&events, &self.transfers) {
+                        match transfers::process_transfers(&events, &blocks, &self.transfers) {
                             Ok(_) => {}
                             Err(e) => panic!("Error updating balances: {:#?}", e),
                         }
@@ -300,7 +300,7 @@ impl<'a> Indexer<'a> {
             Ok(inserted) => {
                 if inserted > 0 {
                     log::info!("Inserted {} events", inserted);
-                    match transfers::process_transfers(&events, &self.transfers) {
+                    match transfers::process_transfers(&events, &[block], &self.transfers) {
                         Ok(_) => {}
                         Err(e) => panic!("Error updating balances: {:#?}", e),
                     }

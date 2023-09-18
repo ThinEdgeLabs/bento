@@ -15,15 +15,16 @@ pub struct BlocksRepository {
 }
 
 impl BlocksRepository {
-    #[allow(dead_code)]
-    pub fn find_all(&self) -> Result<Vec<Block>, diesel::result::Error> {
-        use crate::schema::blocks::dsl::*;
+    pub fn find_by_hashes(&self, hashes: &[String]) -> Result<Vec<Block>, diesel::result::Error> {
+        use crate::schema::blocks::dsl::{blocks, hash};
         let mut conn = self.pool.get().unwrap();
-        let results = blocks.select(Block::as_select()).load::<Block>(&mut conn)?;
+        let results = blocks
+            .filter(hash.eq_any(hashes))
+            .select(Block::as_select())
+            .load::<Block>(&mut conn)?;
         Ok(results)
     }
 
-    #[allow(dead_code)]
     pub fn find_by_hash(
         &self,
         hash: &str,
