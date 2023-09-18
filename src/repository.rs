@@ -523,8 +523,7 @@ impl TransfersRepository {
         from: Option<String>,
         to: Option<String>,
         min_height: Option<i64>,
-    ) -> Result<Vec<(Transfer, Block)>, DbError> {
-        use crate::schema::blocks::dsl::blocks;
+    ) -> Result<Vec<Transfer>, DbError> {
         use crate::schema::transfers::dsl::{
             from_account as from_account_col, height as height_col, to_account as to_account_col,
             transfers,
@@ -540,12 +539,10 @@ impl TransfersRepository {
         if let Some(min_height) = min_height {
             query = query.filter(height_col.ge(min_height));
         }
-        let transfers_with_blocks: Vec<(Transfer, Block)> = query
-            .inner_join(blocks)
-            .select((Transfer::as_select(), Block::as_select()))
-            .load::<(Transfer, Block)>(&mut conn)?;
-        //TODO: Create a model for this instead of using a tuple
-        Ok(transfers_with_blocks)
+        let results: Vec<Transfer> = query
+            .select(Transfer::as_select())
+            .load::<Transfer>(&mut conn)?;
+        Ok(results)
     }
 
     pub fn find_received(
