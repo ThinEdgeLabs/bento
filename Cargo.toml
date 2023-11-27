@@ -30,6 +30,6 @@ tokio = { version = "1.28.2", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["full"] }
 actix-web = "4"
 rand = "0.8.5"
-clap = { version = "4.4.5", features = ["derive"] }
+clap = { version = "4.4.9", features = ["derive"] }
 [dev-dependencies]
 serial_test = "2.0.0"
