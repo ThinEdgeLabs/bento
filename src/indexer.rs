@@ -311,7 +311,7 @@ impl<'a> Indexer<'a> {
         Ok(())
     }
 
-    pub async fn listen_headers_stream(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn index_new_blocks(&self) -> Result<(), Box<dyn Error>> {
         use crate::chainweb_client::BlockHeaderEvent;
         use eventsource_client as es;
         use futures::stream::TryStreamExt;

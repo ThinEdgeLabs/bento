@@ -86,4 +86,9 @@ diesel::joinable!(events -> blocks (block));
 diesel::joinable!(transactions -> blocks (block));
 diesel::joinable!(transfers -> blocks (block));
 
-diesel::allow_tables_to_appear_in_same_query!(blocks, events, transactions, transfers,);
+diesel::allow_tables_to_appear_in_same_query!(
+    blocks,
+    events,
+    transactions,
+    transfers,
+);

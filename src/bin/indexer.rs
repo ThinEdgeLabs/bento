@@ -54,8 +54,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             gaps::fill_gaps(&chainweb_client, &blocks, &indexer).await?;
         }
         None => {
-            log::info!("Indexing blocks...");
-            indexer.listen_headers_stream().await?;
+            log::info!("Indexing new blocks...");
+            indexer.index_new_blocks().await?;
         }
     }
 
