@@ -37,6 +37,54 @@ diesel::table! {
 }
 
 diesel::table! {
+    marmalade_v2_activity (id) {
+        id -> Int8,
+        token_id -> Varchar,
+        creation_time -> Timestamptz,
+        event_type -> Varchar,
+        event_data -> Jsonb,
+    }
+}
+
+diesel::table! {
+    marmalade_v2_balances (account, token_id) {
+        account -> Varchar,
+        guard -> Varchar,
+        token_id -> Varchar,
+        amount -> Numeric,
+        chain_id -> Int8,
+    }
+}
+
+diesel::table! {
+    marmalade_v2_collections (id) {
+        id -> Varchar,
+        name -> Varchar,
+        size -> Int8,
+        operator_guard -> Jsonb,
+        chain_id -> Int8,
+        block -> Varchar,
+        request_key -> Varchar,
+        creation_time -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    marmalade_v2_tokens (id) {
+        id -> Varchar,
+        collection_id -> Nullable<Varchar>,
+        chain_id -> Int8,
+        precision -> Int4,
+        uri -> Varchar,
+        supply -> Numeric,
+        policies -> Jsonb,
+        block -> Varchar,
+        request_key -> Varchar,
+        creation_time -> Timestamptz,
+    }
+}
+
+diesel::table! {
     transactions (block, request_key) {
         bad_result -> Nullable<Jsonb>,
         block -> Varchar,
@@ -83,12 +131,21 @@ diesel::table! {
 }
 
 diesel::joinable!(events -> blocks (block));
+diesel::joinable!(marmalade_v2_activity -> marmalade_v2_tokens (token_id));
+diesel::joinable!(marmalade_v2_balances -> marmalade_v2_tokens (token_id));
+diesel::joinable!(marmalade_v2_collections -> blocks (block));
+diesel::joinable!(marmalade_v2_tokens -> blocks (block));
+diesel::joinable!(marmalade_v2_tokens -> marmalade_v2_collections (collection_id));
 diesel::joinable!(transactions -> blocks (block));
 diesel::joinable!(transfers -> blocks (block));
 
 diesel::allow_tables_to_appear_in_same_query!(
     blocks,
     events,
+    marmalade_v2_activity,
+    marmalade_v2_balances,
+    marmalade_v2_collections,
+    marmalade_v2_tokens,
     transactions,
     transfers,
 );
