@@ -80,7 +80,7 @@ impl BlocksRepository {
     pub fn find_min_max_height_blocks(
         &self,
         chain_id: i64,
-    ) -> Result<(Option<Block>, Option<Block>), DbError> {
+    ) -> Result<Option<(Block, Block)>, DbError> {
         use crate::schema::blocks::dsl::{
             blocks as blocks_table, chain_id as chain_id_column, height,
         };
@@ -96,7 +96,10 @@ impl BlocksRepository {
             .select(Block::as_select())
             .first::<Block>(&mut conn)
             .optional()?;
-        Ok((min_block, max_block))
+        match (min_block, max_block) {
+            (Some(min_block), Some(max_block)) => Ok(Some((min_block, max_block))),
+            _ => Ok(None),
+        }
     }
 
     pub fn count(&self, chain_id: i64) -> Result<i64, DbError> {
@@ -266,6 +269,16 @@ impl EventsRepository {
         let mut conn = self.pool.get().unwrap();
         let deleted = diesel::delete(events.filter(block_col.eq(hash))).execute(&mut conn)?;
         Ok(deleted)
+    }
+
+    pub fn find_by_blocks(&self, blocks: &[Block]) -> Result<Vec<Event>, DbError> {
+        use crate::schema::events::dsl::{block as block_col, events};
+        let mut conn = self.pool.get().unwrap();
+        let results = events
+            .filter(block_col.eq_any(blocks.iter().map(|b| b.hash.to_string())))
+            .select(Event::as_select())
+            .load::<Event>(&mut conn)?;
+        Ok(results)
     }
 }
 

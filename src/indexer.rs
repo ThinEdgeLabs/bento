@@ -99,6 +99,7 @@ impl<'a> Indexer<'a> {
                 .get_block_headers_branches(chain, &next_bounds, &None, None, None)
                 .await
                 .unwrap();
+            log::info!("Received hearders in: {:.2?}", before.elapsed());
             match response.items[..] {
                 [] => return Ok(()),
                 _ => {
@@ -144,7 +145,7 @@ impl<'a> Indexer<'a> {
                 .find_min_max_height_blocks(chain.0 as i64)
                 .unwrap()
             {
-                (Some(min_block), Some(max_block)) => {
+                Some((min_block, max_block)) => {
                     bounds.push((
                         chain.clone(),
                         Bounds {
@@ -162,7 +163,7 @@ impl<'a> Indexer<'a> {
                         ));
                     }
                 }
-                (None, None) => bounds.push((
+                None => bounds.push((
                     chain.clone(),
                     Bounds {
                         lower: vec![],
@@ -181,6 +182,7 @@ impl<'a> Indexer<'a> {
         chain_id: &ChainId,
         force_update: bool,
     ) -> Result<(), Box<dyn Error>> {
+        let before = Instant::now();
         let payloads = self
             .chainweb_client
             .get_block_payload_batch(
@@ -192,6 +194,7 @@ impl<'a> Indexer<'a> {
             )
             .await
             .unwrap();
+        log::info!("Elapsed time to get payloads: {:.2?}", before.elapsed());
         let blocks = self.build_blocks(&headers, &payloads);
 
         if force_update {
@@ -210,9 +213,11 @@ impl<'a> Indexer<'a> {
 
         let signed_txs_by_hash = get_signed_txs_from_payloads(&payloads);
         let request_keys: Vec<String> = signed_txs_by_hash.keys().map(|e| e.to_string()).collect();
+        let before = Instant::now();
         let tx_results = self
             .fetch_transactions_results(&request_keys[..], chain_id)
             .await?;
+        log::info!("Elapsed time to get tx results: {:.2?}", before.elapsed());
         let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
         if !txs.is_empty() {
             match self.transactions.insert_batch(&txs) {

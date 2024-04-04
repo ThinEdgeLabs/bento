@@ -87,7 +87,7 @@ pub fn find_gaps(
         .find_min_max_height_blocks(chain_id.0 as i64)
         .unwrap()
     {
-        (Some(min_block), Some(max_block)) => {
+        Some((min_block, max_block)) => {
             log::info!(
                 "Found min and max blocks for chain {} in {} ms",
                 chain_id.0,
