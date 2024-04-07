@@ -3,6 +3,7 @@ use bento::db;
 use bento::gaps;
 use bento::indexer::*;
 use bento::repository::*;
+use clap::ValueEnum;
 use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 
@@ -16,10 +17,31 @@ struct IndexerCli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Backfill blocks
-    Backfill,
-    /// Index missed blocks
+    /// Backfill data
+    Backfill(BackfillArgs),
+    /// Find and index missed blocks
     Gaps,
+}
+
+#[derive(clap::Args)]
+#[command(version, about, long_about = None)]
+struct BackfillArgs {
+    #[arg(long, value_enum)]
+    module: Option<Modules>,
+    #[arg(long)]
+    chain_id: Option<u16>,
+    #[arg(long)]
+    min_height: Option<u64>,
+    #[arg(long)]
+    max_height: Option<u64>,
+    #[arg(short, long, default_value_t = 4)]
+    /// Number of chains to backfill concurrently
+    concurrency: usize,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum Modules {
+    MarmaladeV2,
 }
 
 #[tokio::main]
@@ -45,16 +67,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = IndexerCli::parse();
     match args.command {
-        Some(Command::Backfill) => {
+        Some(Command::Backfill(args)) => {
             log::info!("Backfilling blocks...");
-            indexer.backfill().await?;
+            match args.module {
+                Some(Modules::MarmaladeV2) => {
+                    log::info!("Backfilling MarmaladeV2 data...");
+                    use bento::modules::marmalade_v2::backfill;
+                    backfill::run(
+                        pool.clone(),
+                        args.chain_id,
+                        args.min_height,
+                        args.max_height,
+                    )
+                    .await?;
+                }
+                None => {
+                    indexer
+                        .backfill(
+                            args.chain_id,
+                            args.min_height,
+                            args.max_height,
+                            args.concurrency,
+                        )
+                        .await?;
+                }
+            }
         }
         Some(Command::Gaps) => {
-            log::info!("Filling gaps...");
             gaps::fill_gaps(&chainweb_client, &blocks, &indexer).await?;
         }
         None => {
-            log::info!("Indexing new blocks...");
             indexer.index_new_blocks().await?;
         }
     }

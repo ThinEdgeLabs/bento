@@ -1,6 +1,7 @@
 use bigdecimal::BigDecimal;
 use chrono::NaiveDateTime;
 use core::panic;
+use diesel::dsl::max;
 use futures::stream;
 use futures::StreamExt;
 use serde_json::Value;
@@ -29,69 +30,96 @@ pub struct Indexer<'a> {
 }
 
 impl<'a> Indexer<'a> {
-    pub async fn backfill(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn backfill(
+        &self,
+        chain_id: Option<u16>,
+        min_height: Option<u64>,
+        max_height: Option<u64>,
+        concurrency: usize,
+    ) -> Result<(), Box<dyn Error>> {
         let cut = self.chainweb_client.get_cut().await.unwrap();
-        let bounds: Vec<(ChainId, Bounds)> = self.get_all_bounds(&cut);
-        stream::iter(bounds)
-            .map(|(chain, bounds)| async move { self.index_chain(bounds, &chain, false).await })
-            .buffer_unordered(4)
+        let chains = match chain_id {
+            Some(chain_id) => vec![ChainId(chain_id)],
+            None => cut
+                .hashes
+                .keys()
+                .map(|e| e.clone())
+                .collect::<Vec<ChainId>>(),
+        };
+        let min_height = min_height.unwrap_or(0);
+        stream::iter(chains)
+            .map(|chain| {
+                let cut = cut.clone();
+                async move {
+                    let max_height =
+                        max_height.unwrap_or(cut.hashes.get(&chain).unwrap().height as u64);
+                    let bounds = self.get_bounds(&cut, &chain, min_height, max_height).await;
+                    self.backfill_chain(&chain, bounds, min_height, max_height, false)
+                        .await
+                }
+            })
+            .buffer_unordered(concurrency)
             .collect::<Vec<Result<(), Box<dyn Error>>>>()
             .await;
         Ok(())
     }
 
-    pub async fn backfill_range(
+    async fn get_bounds(
         &self,
-        min_height: i64,
-        max_height: i64,
-        chain: i64,
-        force_update: bool,
-    ) -> Result<(), Box<dyn Error>> {
-        let cut = self.chainweb_client.get_cut().await.unwrap();
-        let latest_block_hash = cut
-            .hashes
-            .get(&ChainId(chain as u16))
+        cut: &Cut,
+        chain: &ChainId,
+        min_height: u64,
+        max_height: u64,
+    ) -> Bounds {
+        let current_block_hash = cut.hashes.get(chain).unwrap().hash.to_string();
+        let bounds = Bounds {
+            lower: vec![],
+            upper: vec![Hash(current_block_hash)],
+        };
+        let min_block_hash = self
+            .chainweb_client
+            .get_block_headers_branches(chain, &bounds, &None, None, Some((min_height) as u64))
+            .await
+            .unwrap()
+            .items
+            .first()
+            .unwrap()
+            .hash
+            .to_string();
+        let max_block_hash = self
+            .chainweb_client
+            .get_block_headers_branches(chain, &bounds, &None, None, Some(max_height as u64))
+            .await
+            .unwrap()
+            .items
+            .first()
             .unwrap()
             .hash
             .to_string();
         let bounds = Bounds {
-            lower: vec![],
-            upper: vec![Hash(latest_block_hash)],
+            lower: vec![Hash(min_block_hash)],
+            upper: vec![Hash(max_block_hash)],
         };
-        let chain_id = ChainId(chain as u16);
-        let range_low = self
-            .chainweb_client
-            .get_block_headers_branches(
-                &chain_id,
-                &bounds,
-                &None,
-                None,
-                // The /chain/{chain}/header/branch endpoint returns blocks > min_height
-                // not >= as the documentation states so we go one block back to make
-                // sure we also get the block at min_height.
-                Some((min_height - 1) as u64),
-            )
-            .await?;
-        let range_high = self
-            .chainweb_client
-            .get_block_headers_branches(&chain_id, &bounds, &None, None, Some(max_height as u64))
-            .await?;
-        let bounds = Bounds {
-            lower: vec![Hash(range_low.items.first().unwrap().hash.to_string())],
-            upper: vec![Hash(range_high.items.first().unwrap().hash.to_string())],
-        };
-        self.index_chain(bounds, &chain_id, force_update).await?;
-        Ok(())
+        bounds
     }
 
-    pub async fn index_chain(
+    pub async fn backfill_chain(
         &self,
-        bounds: Bounds,
         chain: &ChainId,
+        bounds: Bounds,
+        min_height: u64,
+        max_height: u64,
         force_update: bool,
     ) -> Result<(), Box<dyn Error>> {
-        log::info!("Indexing chain: {}, bounds: {:?}", chain.0, bounds);
+        log::info!(
+            "Backfilling chain: {}, between blocks {} and {}",
+            chain.0,
+            min_height,
+            max_height
+        );
         let mut next_bounds = bounds;
+        let total_blocks = max_height - min_height + 1;
+        let mut progress = 0;
         loop {
             let before = Instant::now();
             let response = self
@@ -99,11 +127,11 @@ impl<'a> Indexer<'a> {
                 .get_block_headers_branches(chain, &next_bounds, &None, None, None)
                 .await
                 .unwrap();
-            log::info!("Received hearders in: {:.2?}", before.elapsed());
+            log::debug!("Received headers in: {:.2?}", before.elapsed());
             match response.items[..] {
                 [] => return Ok(()),
                 _ => {
-                    log::info!(
+                    log::debug!(
                         "Chain {}: retrieved {} blocks, between heights {} and {}",
                         chain.0,
                         response.items.len(),
@@ -116,67 +144,31 @@ impl<'a> Indexer<'a> {
                         ..next_bounds
                     };
 
+                    progress += response.items.len();
+                    log::info!(
+                        "Chain {}: backfill progress: {}/{}",
+                        chain.0,
+                        progress,
+                        total_blocks
+                    );
+
                     if next_bounds == previous_bounds {
-                        log::info!("Chain {}: fetched all blocks within given bounds.", chain.0);
+                        log::info!("Backfill complete for chain {}.", chain.0);
                         return Ok(());
                     }
                 }
             }
             self.process_headers(response.items, chain, force_update)
                 .await?;
-            log::info!(
+            log::debug!(
                 "Chain {}, elapsed time per batch: {:.2?}",
                 chain.0,
                 before.elapsed()
             );
         }
     }
-    fn get_all_bounds(&self, cut: &Cut) -> Vec<(ChainId, Bounds)> {
-        let mut bounds: Vec<(ChainId, Bounds)> = vec![];
-        cut.hashes.iter().for_each(|(chain, last_block_hash)| {
-            log::info!(
-                "Chain: {}, current height: {}, last block hash: {}",
-                chain.0,
-                last_block_hash.height,
-                last_block_hash.hash
-            );
-            match self
-                .blocks
-                .find_min_max_height_blocks(chain.0 as i64)
-                .unwrap()
-            {
-                Some((min_block, max_block)) => {
-                    bounds.push((
-                        chain.clone(),
-                        Bounds {
-                            lower: vec![Hash(max_block.hash)],
-                            upper: vec![Hash(last_block_hash.hash.to_string())],
-                        },
-                    ));
-                    if min_block.height > 0 {
-                        bounds.push((
-                            chain.clone(),
-                            Bounds {
-                                lower: vec![],
-                                upper: vec![Hash(min_block.hash)],
-                            },
-                        ));
-                    }
-                }
-                None => bounds.push((
-                    chain.clone(),
-                    Bounds {
-                        lower: vec![],
-                        upper: vec![Hash(last_block_hash.hash.to_string())],
-                    },
-                )),
-                _ => {}
-            }
-        });
-        bounds
-    }
 
-    pub async fn process_headers(
+    async fn process_headers(
         &self,
         headers: Vec<BlockHeader>,
         chain_id: &ChainId,
@@ -194,7 +186,7 @@ impl<'a> Indexer<'a> {
             )
             .await
             .unwrap();
-        log::info!("Elapsed time to get payloads: {:.2?}", before.elapsed());
+        log::debug!("Elapsed time to get payloads: {:.2?}", before.elapsed());
         let blocks = self.build_blocks(&headers, &payloads);
 
         if force_update {
@@ -217,18 +209,19 @@ impl<'a> Indexer<'a> {
         let tx_results = self
             .fetch_transactions_results(&request_keys[..], chain_id)
             .await?;
-        log::info!("Elapsed time to get tx results: {:.2?}", before.elapsed());
+        log::debug!("Elapsed time to get tx results: {:.2?}", before.elapsed());
         let txs = get_transactions_from_payload(&signed_txs_by_hash, &tx_results, chain_id);
         if !txs.is_empty() {
             match self.transactions.insert_batch(&txs) {
-                Ok(inserted) => log::info!("Inserted {} transactions", inserted),
+                Ok(inserted) => log::debug!("Inserted {} transactions", inserted),
                 Err(e) => panic!("Error inserting transactions: {:#?}", e),
             }
             let events = get_events_from_txs(&tx_results, &signed_txs_by_hash);
             if !events.is_empty() {
                 match self.events.insert_batch(&events) {
                     Ok(inserted) => {
-                        log::info!("Inserted {} events", inserted);
+                        log::debug!("Inserted {} events", inserted);
+                        // TODO: Index marmalade_v2 events and other modules
                         match transfers::process_transfers(&events, &blocks, &self.transfers) {
                             Ok(_) => {}
                             Err(e) => panic!("Error updating balances: {:#?}", e),
@@ -305,6 +298,7 @@ impl<'a> Indexer<'a> {
             Ok(inserted) => {
                 if inserted > 0 {
                     log::info!("Inserted {} events", inserted);
+
                     match transfers::process_transfers(&events, &[block], &self.transfers) {
                         Ok(_) => {}
                         Err(e) => panic!("Error updating balances: {:#?}", e),
@@ -447,6 +441,12 @@ impl<'a> Indexer<'a> {
             })
             .await;
         Ok(results)
+    }
+
+    fn index_modules(events: &[Event]) -> Result<(), Box<dyn Error>> {
+        //marmalade_v2::indexer::process_events(events)
+        //custom_module::indexer::process_events(events)
+        Ok(())
     }
 }
 

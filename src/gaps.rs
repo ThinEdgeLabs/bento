@@ -12,6 +12,7 @@ pub async fn fill_gaps<'a>(
     blocks_repo: &BlocksRepository,
     indexer: &Indexer<'a>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("Filling gaps...");
     let cut = chainweb_client.get_cut().await.unwrap();
     let gaps = cut
         .hashes
@@ -42,12 +43,14 @@ pub async fn fill_gaps<'a>(
         stream::iter(gaps)
             .map(|(lower_bound, upper_bound)| async move {
                 indexer
-                    .index_chain(
+                    .backfill_chain(
+                        chain,
                         Bounds {
                             lower: vec![Hash(lower_bound.hash.clone())],
                             upper: vec![Hash(upper_bound.hash.clone())],
                         },
-                        chain,
+                        lower_bound.height as u64,
+                        upper_bound.height as u64,
                         false,
                     )
                     .await

@@ -24,7 +24,7 @@ pub struct Bounds {
     pub upper: Vec<Hash>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct BlockHash {
     pub height: u32,
     pub hash: String,
@@ -42,7 +42,7 @@ impl Display for ChainId {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Hash(pub String);
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct Cut {
     pub height: u32,
     pub weight: String,
