@@ -160,6 +160,7 @@ mod tests {
     use crate::repository::BlocksRepository;
     use bigdecimal::BigDecimal;
     use chrono::Utc;
+    use rand::distr::{Alphanumeric, SampleString};
     use serial_test::serial;
 
     fn make_block(chain_id: i64, height: i64, hash: String) -> Block {
@@ -190,7 +191,6 @@ mod tests {
         to: String,
         amount: f64,
     ) -> Event {
-        use rand::distributions::{Alphanumeric, DistString};
         Event {
             block: block.clone(),
             chain_id,
@@ -202,7 +202,7 @@ mod tests {
             params: serde_json::json!([from, to, amount]),
             param_text: "param-text".to_string(),
             qual_name: "coin.TRANSFER".to_string(),
-            request_key: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
+            request_key: Alphanumeric.sample_string(&mut rand::rng(), 16),
             pact_id: None,
         }
     }
