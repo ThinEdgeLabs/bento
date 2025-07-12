@@ -1,3 +1,10 @@
+x-logging: &logging
+  logging:
+    driver: "json-file"
+    options:
+      max-file: 5
+      max-size: 20m
+
 services:
   db:
     environment:
@@ -7,6 +14,7 @@ services:
     volumes:
       - "${PGDATA_MOUNT_PATH}:/var/lib/postgresql/data/pgdata"
       - "./db/init:/docker-entrypoint-initdb.d"
+    <<: *logging
 
   builder:
     build:
@@ -25,6 +33,7 @@ services:
     depends_on:
       - builder
       - db
+    <<: *logging
 
   api:
     build:
@@ -38,3 +47,4 @@ services:
       - builder
     ports:
       - "${API_PORT}:${API_PORT}"
+    <<: *logging
