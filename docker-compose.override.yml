@@ -1,7 +1,4 @@
-version: '3.1'
-
 services:
-
   db:
     # Exposing port 5432 to the host for development purposes
     ports:

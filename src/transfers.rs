@@ -3,7 +3,7 @@ use crate::db::DbError;
 use crate::models::{Block, Event, Transfer};
 use crate::repository::{BlocksRepository, EventsRepository, TransfersRepository};
 use bigdecimal::BigDecimal;
-use chrono::NaiveDateTime;
+use chrono::DateTime;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Instant;
@@ -136,8 +136,11 @@ fn make_transfer(event: &Event, block: &Block) -> Transfer {
         amount,
         block: event.block.clone(),
         chain_id: event.chain_id,
-        creation_time: NaiveDateTime::from_timestamp_millis(block.creation_time.timestamp_millis())
-            .unwrap(),
+        creation_time: DateTime::from_timestamp_micros(
+            block.creation_time.and_utc().timestamp_millis(),
+        )
+        .unwrap()
+        .naive_utc(),
         from_account: sender,
         height: event.height,
         idx: event.idx,

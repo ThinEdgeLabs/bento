@@ -5,24 +5,26 @@ Bento is an indexing solution for [Kadena](https://kadena.io) blockchain written
 [![Build Status:](https://github.com/ThinEdgeLabs/bento/workflows/CI%20Tests/badge.svg)](https://github.com/ThinEdgeLabs/bento/actions?query=workflow%3A%22CI+Tests%22+branch%3Amain)
 
 ## Features
-* out-of-the-box indexes blocks, transactions, events and token transfers
-* automatically removes orphan blocks
-* handles missed blocks
-* HTTP API
+
+- out-of-the-box indexes blocks, transactions, events and token transfers
+- automatically removes orphan blocks
+- handles missed blocks
+- HTTP API
 
 ## Coming soon
-* an easy way to extend it and index any custom modules (eg. Marmalade)
+
+- an easy way to extend it and index any custom modules (eg. Marmalade)
 
 ## Setup
 
 ### Prerequisites
 
-* [Chainweb Node](https://github.com/kadena-io/chainweb-node)
-* [Docker] (optional)
+- [Chainweb Node](https://github.com/kadena-io/chainweb-node)
+- [Docker] (optional)
 
 #### Using Docker
 
-The fastest way is to use Docker / Docker Compose  as the repo already comes with a docker-compose configuration file.
+The fastest way is to use Docker / Docker Compose as the repo already comes with a docker-compose configuration file.
 Alternatively you would need to install PostgreSQL, [rust and cargo to build](Build with Cargo) and then execute the binaries.
 
 **Important**: the `headerStream` chainweb node config needs to be set to `true`. You can check the [configuring the node](https://github.com/kadena-io/chainweb-data#configuring-the-node) section of `chainweb-data` for more details.
@@ -30,11 +32,14 @@ Alternatively you would need to install PostgreSQL, [rust and cargo to build](Bu
 Once the node is setup and synced you can continue with the installation:
 
 1. Clone the repository:
+
 ```
 git clone git@github.com:ThinEdgeLabs/bento.git
 ```
+
 2. Create a `.env` file, check the `.env-example` to see how it should look like.
 3. Start the containers:
+
 ```
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
@@ -48,11 +53,13 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 cargo build --release
 ```
+
 The binaries are available at `./target/release/api` and `./target/release/indexer`.
 
 ## Usage
 
-If you used Docker the *indexer* and *api* services should already be up and running. Additionally you can run one of the available indexer subcommands like this:
+If you used Docker the _indexer_ and _api_ services should already be up and running. Additionally you can run one of the available indexer subcommands like this:
+
 ```bash
 # docker compose -f docker-compose.yml -f docker-compose.prod.yml run indexer [subcommand]
 docker compose -f docker-compose.yml -f docker-compose.prod.yml run indexer backfill
@@ -61,13 +68,16 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml run indexer back
 Manually starting the services:
 
 **API**:
+
 ```bash
 ./target/release/api
 
 [2023-09-10T08:49:14Z INFO  actix_server::builder] starting 8 workers
 [2023-09-10T08:49:14Z INFO  actix_server::server] Actix runtime found; starting in Actix runtime
 ```
+
 **Indexer**:
+
 ```bash
 By default new blocks are indexed as they are mined. For backfilling and filling gaps use the subcommands
 Usage: indexer [COMMAND]
@@ -85,14 +95,16 @@ Options:
 
 Available endpoints:
 
-* GET /tx/{request_key} - get tx result for given request key. If it's a multi-step tx, it will return all completed steps as well.
-* POST /txs - get tx results for multiple request keys. Payload example:
+- GET /tx/{request_key} - get tx result for given request key. If it's a multi-step tx, it will return all completed steps as well.
+- POST /txs - get tx results for multiple request keys. Payload example:
+
 ```json
-{"request_keys": ["req-key-1", "req-key-2"]}
+{ "request_keys": ["req-key-1", "req-key-2"] }
 ```
-* GET /transfers?from={account_from}&to={account_to}&min_height={100}
-* GET /balance/{account} - get balances of all tokens for given account
-* GET /balance/{account}/{module} - get token balance on all chains for given account and module
+
+- GET /transfers?from={account_from}&to={account_to}&min_height={100}
+- GET /balance/{account} - get balances of all tokens for given account
+- GET /balance/{account}/{module} - get token balance on all chains for given account and module
 
 ## Development
 
@@ -101,6 +113,7 @@ Available endpoints:
 1. Install Rust using [rustup], which allows you to easily switch between Rust versions. Bento currently supports Rust Stable and Rust Beta.
 
 2. Install [diesel](https://diesel.rs/guides/getting-started) using cargo:
+
 ```
 cargo install diesel_cli --no-default-features --features postgres
 ```
@@ -112,26 +125,31 @@ cargo install diesel_cli --no-default-features --features postgres
 5. Create a `.env` file in the project directory with database connection details, Chainweb node host and others. See [.env-sample](.env-sample) for an example how this should look like.
 
 6. Start postgres and adminer containers:
+
 ```
 docker compose up -d
 ```
 
 7. Create the database used for tests:
+
 ```
 diesel database setup --database-url=postgres://postgres:postgres@localhost/bento_test
 ```
 
 8. To confirm everything is setup correctly, try running the test suite:
+
 ```bash
 cargo test
 ```
 
 9. Start the indexer using cargo:
+
 ```
 cargo run --bin indexer
 ```
 
 10. Start the api using cargo:
+
 ```
 cargo run --bin api
 ```
@@ -145,15 +163,18 @@ To run rustfmt tests locally:
    [rust-toolchain file](./rust-toolchain).
 
 2. Install the rustfmt and clippy by running
+
    ```
    rustup component add rustfmt
    rustup component add clippy
    ```
 
 3. Run clippy using cargo from the root of your bento repo.
+
    ```
    cargo clippy
    ```
+
    Each PR needs to compile without warning.
 
 4. Run rustfmt using cargo from the root of your bento repo.
