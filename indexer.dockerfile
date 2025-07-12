@@ -1,5 +1,5 @@
 ARG BUILDER_IMAGE
-FROM ${BUILDER_IMAGE} as builder
+FROM ${BUILDER_IMAGE} AS builder
 
 FROM debian:bullseye-slim
 RUN apt-get update && apt-get install libpq-dev -y && apt-get install ca-certificates -y
