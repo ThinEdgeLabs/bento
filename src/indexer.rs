@@ -475,10 +475,10 @@ fn build_block(header: &BlockHeader, block_payload: &BlockPayload) -> Block {
         height: header.height as i64,
         parent: header.parent.clone(),
         weight: BigDecimal::from_str(&header.weight).unwrap_or(BigDecimal::from(0)),
-        creation_time: DateTime::from_timestamp_micros(header.creation_time)
+        creation_time: DateTime::from_timestamp_millis(header.creation_time)
             .unwrap()
             .naive_utc(),
-        epoch: DateTime::from_timestamp_micros(header.epoch_start)
+        epoch: DateTime::from_timestamp_millis(header.epoch_start)
             .unwrap()
             .naive_utc(),
         flags: header.feature_flags.clone(),
@@ -536,7 +536,7 @@ fn build_transaction(
         bad_result: pact_result.result.error.clone(),
         block: pact_result.metadata.block_hash.clone(),
         chain_id: chain.0 as i64,
-        creation_time: DateTime::from_timestamp_micros(pact_result.metadata.block_time)
+        creation_time: DateTime::from_timestamp_millis(pact_result.metadata.block_time)
             .unwrap()
             .naive_utc(),
         code,

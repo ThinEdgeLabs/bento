@@ -136,7 +136,7 @@ fn make_transfer(event: &Event, block: &Block) -> Transfer {
         amount,
         block: event.block.clone(),
         chain_id: event.chain_id,
-        creation_time: DateTime::from_timestamp_micros(
+        creation_time: DateTime::from_timestamp_millis(
             block.creation_time.and_utc().timestamp_millis(),
         )
         .unwrap()
@@ -310,10 +310,11 @@ mod tests {
                 amount: BigDecimal::from_str("100.12324354665567").unwrap(),
                 block: "block-hash".to_string(),
                 chain_id: 0,
-                creation_time: NaiveDateTime::from_timestamp_millis(
-                    block.creation_time.timestamp_millis()
+                creation_time: DateTime::from_timestamp_millis(
+                    block.creation_time.and_utc().timestamp_millis()
                 )
-                .unwrap(),
+                .unwrap()
+                .naive_utc(),
                 from_account: "bob".to_string(),
                 height: 0,
                 idx: 0,
@@ -336,10 +337,11 @@ mod tests {
                 amount: BigDecimal::from_str("10").unwrap(),
                 block: "block-hash".to_string(),
                 chain_id: 0,
-                creation_time: NaiveDateTime::from_timestamp_millis(
-                    block.creation_time.timestamp_millis()
+                creation_time: DateTime::from_timestamp_millis(
+                    block.creation_time.and_utc().timestamp_millis()
                 )
-                .unwrap(),
+                .unwrap()
+                .naive_utc(),
                 from_account: "".to_string(),
                 height: 0,
                 idx: 0,
@@ -361,10 +363,11 @@ mod tests {
                 amount: BigDecimal::from_str("10").unwrap(),
                 block: "block-hash".to_string(),
                 chain_id: 0,
-                creation_time: NaiveDateTime::from_timestamp_millis(
-                    block.creation_time.timestamp_millis()
+                creation_time: DateTime::from_timestamp_millis(
+                    block.creation_time.and_utc().timestamp_millis()
                 )
-                .unwrap(),
+                .unwrap()
+                .naive_utc(),
                 from_account: "bob".to_string(),
                 height: 0,
                 idx: 0,
