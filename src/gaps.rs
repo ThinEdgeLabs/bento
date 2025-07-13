@@ -5,7 +5,7 @@ use futures::{stream, StreamExt};
 use crate::chainweb_client::{Bounds, ChainId, ChainwebClient, Hash};
 use crate::indexer::Indexer;
 use crate::models::Block;
-use crate::{db::DbError, repository::BlocksRepository};
+use crate::repository::BlocksRepository;
 
 pub async fn fill_gaps<'a>(
     chainweb_client: &ChainwebClient,
@@ -17,7 +17,7 @@ pub async fn fill_gaps<'a>(
         .hashes
         .keys()
         .map(|chain| {
-            let gaps = find_gaps(chain, blocks_repo).unwrap();
+            let gaps = blocks_repo.find_gap_ranges(chain.0 as i64).unwrap();
             let missing_blocks = gaps
                 .iter()
                 .map(|gap| gap.1.height - gap.0.height - 1)
@@ -64,102 +64,6 @@ pub async fn fill_gaps<'a>(
     Ok(())
 }
 
-/// Check if there are any gaps in the blocks table
-/// by comparing number of blocks with the difference between max and min height
-/// If there are gaps, find them and return a list of tuples (lower_bound, upper_bound)
-pub fn find_gaps(
-    chain_id: &ChainId,
-    repository: &BlocksRepository,
-) -> Result<Vec<(Block, Block)>, DbError> {
-    let before = std::time::Instant::now();
-    let count = repository.count(chain_id.0 as i64).unwrap();
-    log::info!(
-        "Counted {} blocks for chain {} in {} ms",
-        count,
-        chain_id.0,
-        before.elapsed().as_millis()
-    );
-    if count == 0 {
-        return Ok(vec![]);
-    }
-    let before = std::time::Instant::now();
-    match repository
-        .find_min_max_height_blocks(chain_id.0 as i64)
-        .unwrap()
-    {
-        (Some(min_block), Some(max_block)) => {
-            log::info!(
-                "Found min and max blocks for chain {} in {} ms",
-                chain_id.0,
-                before.elapsed().as_millis()
-            );
-            log::info!(
-                "Min block: {}, max block: {}, count: {}",
-                min_block.height,
-                max_block.height,
-                count
-            );
-            // Chains 0-9 have height 0 for genesis block, 10 to 19 were added later (height 852054)
-            let no_gaps = if min_block.height == 0 {
-                (max_block.height + 1) == count
-            } else {
-                (max_block.height - min_block.height + 1) == count
-            };
-            if !no_gaps {
-                find_gaps_in_range(
-                    min_block.height,
-                    max_block.height,
-                    chain_id.0 as i64,
-                    repository,
-                )
-            } else {
-                Ok(vec![])
-            }
-        }
-        _ => Ok(vec![]),
-    }
-}
-
-/// Start from max height and go backwards
-/// Query blocks in batches and look for gaps
-/// Return a list of tuples (lower_bound, upper_bound)
-fn find_gaps_in_range(
-    min_height: i64,
-    max_height: i64,
-    chain: i64,
-    repository: &BlocksRepository,
-) -> Result<Vec<(Block, Block)>, DbError> {
-    let batch_size = 100;
-    let mut max_height = max_height;
-    let mut gaps: Vec<(Block, Block)> = vec![];
-    let mut last_block = None;
-    loop {
-        if max_height <= min_height {
-            return Ok(gaps);
-        }
-        let blocks = repository.find_by_range(max_height - batch_size, max_height, chain)?;
-        if blocks.is_empty() {
-            max_height -= batch_size;
-            continue;
-        }
-        let mut previous_block = if let Some(last) = last_block {
-            last
-        } else {
-            blocks.last().unwrap().clone()
-        };
-
-        for block in blocks.iter() {
-            if previous_block.height - block.height > 1 {
-                gaps.push((block.clone(), previous_block));
-            }
-            previous_block = block.clone();
-        }
-
-        max_height -= batch_size;
-        last_block = Some(previous_block);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +99,7 @@ mod tests {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
         let blocks = BlocksRepository { pool: pool.clone() };
+        blocks.delete_all().unwrap();
         blocks
             .insert_batch(&vec![
                 make_block(0, 0),
@@ -207,7 +112,7 @@ mod tests {
             .unwrap();
 
         let chain = ChainId(0);
-        assert!(find_gaps(&chain, &blocks).unwrap().is_empty());
+        assert!(blocks.find_gap_ranges(chain.0 as i64).unwrap().is_empty());
         blocks.delete_all().unwrap();
     }
     #[test]
@@ -216,6 +121,7 @@ mod tests {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
         let blocks = BlocksRepository { pool: pool.clone() };
+        blocks.delete_all().unwrap();
         blocks
             .insert_batch(&vec![
                 make_block(0, 0),
@@ -227,7 +133,7 @@ mod tests {
                 make_block(0, 10),
             ])
             .unwrap();
-        let gaps = find_gaps(&ChainId(0), &blocks);
+        let gaps = blocks.find_gap_ranges(0);
         assert!(gaps.is_ok());
         let gaps_heights = gaps
             .unwrap()
@@ -235,7 +141,7 @@ mod tests {
             .map(|(a, b)| (a.height, b.height))
             .collect::<Vec<_>>();
         println!("{:?}", gaps_heights);
-        assert!(gaps_heights == vec![(5, 9), (2, 4)]);
+        assert!(gaps_heights == vec![(2, 4), (5, 9)]);
         blocks.delete_all().unwrap();
     }
 
@@ -245,6 +151,7 @@ mod tests {
         dotenvy::from_filename(".env.test").ok();
         let pool = db::initialize_db_pool();
         let blocks = BlocksRepository { pool: pool.clone() };
+        blocks.delete_all().unwrap();
         blocks
             .insert_batch(&vec![
                 make_block(0, 0),
@@ -259,13 +166,13 @@ mod tests {
             .unwrap();
 
         let chain = ChainId(0);
-        let gaps = find_gaps_in_range(0, 10, chain.0 as i64, &blocks);
+        let gaps = blocks.find_gap_ranges(chain.0 as i64);
         let gaps_heights = gaps
             .unwrap()
             .iter()
             .map(|(a, b)| (a.height, b.height))
             .collect::<Vec<_>>();
-        assert!(gaps_heights == vec![(8, 10), (6, 8), (2, 4)]);
+        assert!(gaps_heights == vec![(2, 4), (6, 8), (8, 10)]);
         blocks.delete_all().unwrap();
     }
 }

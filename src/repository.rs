@@ -8,10 +8,19 @@ use super::models::*;
 use bigdecimal::BigDecimal;
 use diesel::dsl::sum;
 use diesel::prelude::*;
+use diesel::sql_types::BigInt;
 
 #[derive(Clone)]
 pub struct BlocksRepository {
     pub pool: DbPool,
+}
+
+#[derive(QueryableByName)]
+struct GapBoundary {
+    #[diesel(sql_type = BigInt)]
+    gap_start: i64,
+    #[diesel(sql_type = BigInt)]
+    gap_end: i64,
 }
 
 impl BlocksRepository {
@@ -43,6 +52,70 @@ impl BlocksRepository {
         Ok(result)
     }
 
+    pub fn find_gap_ranges(&self, chain_id: i64) -> Result<Vec<(Block, Block)>, DbError> {
+        use diesel::sql_query;
+        use diesel::sql_types::BigInt;
+
+        let mut conn = self.pool.get().unwrap();
+
+        // First get min/max heights
+        let (min_height, max_height): (Option<i64>, Option<i64>) = {
+            use crate::schema::blocks::dsl::{
+                blocks as blocks_table, chain_id as chain_id_column, height as height_column,
+            };
+            use diesel::dsl::{max, min};
+
+            blocks_table
+                .filter(chain_id_column.eq(chain_id))
+                .select((min(height_column), max(height_column)))
+                .first(&mut conn)?
+        };
+
+        if let (Some(_min), Some(_max)) = (min_height, max_height) {
+            // Find gaps using SQL window functions - this identifies gap start/end points
+            let gap_boundaries: Vec<GapBoundary> = sql_query(
+                r#"
+                WITH gaps AS (
+                    SELECT
+                        height,
+                        LAG(height) OVER (ORDER BY height) as prev_height
+                    FROM blocks
+                    WHERE chain_id = $1
+                    ORDER BY height
+                ),
+                gap_starts AS (
+                    SELECT
+                        prev_height + 1 as gap_start,
+                        height - 1 as gap_end
+                    FROM gaps
+                    WHERE height - prev_height > 1
+                )
+                SELECT gap_start, gap_end FROM gap_starts
+                "#,
+            )
+            .bind::<BigInt, _>(chain_id)
+            .load(&mut conn)?;
+
+            // Fetch the actual boundary blocks for each gap
+            let mut result = Vec::new();
+            for gap in gap_boundaries {
+                let gap_start = gap.gap_start;
+                let gap_end = gap.gap_end;
+                // Get the block just before the gap (lower bound)
+                if let Some(lower_block) = self.find_by_height(gap_start - 1, chain_id)? {
+                    // Get the block just after the gap (upper bound)
+                    if let Some(upper_block) = self.find_by_height(gap_end + 1, chain_id)? {
+                        result.push((lower_block, upper_block));
+                    }
+                }
+            }
+
+            Ok(result)
+        } else {
+            Ok(vec![])
+        }
+    }
+
     pub fn find_by_height(&self, height: i64, chain_id: i64) -> Result<Option<Block>, DbError> {
         use crate::schema::blocks::dsl::{
             blocks as blocks_table, chain_id as chain_id_column, height as height_column,
@@ -62,18 +135,19 @@ impl BlocksRepository {
         min_height: i64,
         max_height: i64,
         chain_id: i64,
-    ) -> Result<Vec<Block>, DbError> {
+    ) -> Result<Vec<String>, DbError> {
         use crate::schema::blocks::dsl::{
-            blocks as blocks_table, chain_id as chain_id_column, height as height_column,
+            blocks as blocks_table, chain_id as chain_id_column, hash as hash_column,
+            height as height_column,
         };
         let mut conn = self.pool.get().unwrap();
         let results = blocks_table
             .filter(height_column.ge(min_height))
             .filter(height_column.le(max_height))
             .filter(chain_id_column.eq(chain_id))
-            .select(Block::as_select())
+            .select(hash_column)
             .order(height_column.desc())
-            .load::<Block>(&mut conn)?;
+            .load::<String>(&mut conn)?;
         Ok(results)
     }
 
