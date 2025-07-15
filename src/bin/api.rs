@@ -1,4 +1,5 @@
 use actix_web::{error, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use bento::chainweb_client::ChainwebClient;
 use bento::db;
 use bento::models::*;
 use bento::repository::*;
@@ -107,6 +108,52 @@ async fn get_transfers(
     Ok(HttpResponse::Ok().json(transfers))
 }
 
+#[get("/health-check")]
+async fn health_check(
+    chainweb_client: web::Data<ChainwebClient>,
+    blocks_repo: web::Data<BlocksRepository>,
+) -> actix_web::Result<impl Responder> {
+    // Get the latest cut from the blockchain node
+    let cut = match chainweb_client.get_cut().await {
+        Ok(cut) => cut,
+        Err(_) => return Ok(HttpResponse::BadRequest().body("Failed to get cut from blockchain node")),
+    };
+
+    // Check each chain to see if our database is in sync
+    for (chain_id, block_hash) in &cut.hashes {
+        let chain_id_i64 = chain_id.0 as i64;
+        let blockchain_height = block_hash.height as i64;
+
+        // Get the min/max height blocks from our database for this chain
+        let (_, max_block) = match web::block({
+            let blocks_repo = blocks_repo.clone();
+            move || blocks_repo.find_min_max_height_blocks(chain_id_i64)
+        })
+        .await?
+        .map_err(error::ErrorInternalServerError)?
+        {
+            (min_block, max_block) => (min_block, max_block),
+        };
+
+        // Check if we have any blocks for this chain
+        let db_height = match max_block {
+            Some(block) => block.height,
+            None => return Ok(HttpResponse::BadRequest().body("No blocks found in database")),
+        };
+
+        // If any chain is not in sync, return 400
+        if db_height != blockchain_height {
+            return Ok(HttpResponse::BadRequest().body(format!(
+                "Chain {} not in sync: DB height {}, Blockchain height {}",
+                chain_id_i64, db_height, blockchain_height
+            )));
+        }
+    }
+
+    // All chains are in sync
+    Ok(HttpResponse::Ok().body("OK"))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
@@ -119,17 +166,22 @@ async fn main() -> std::io::Result<()> {
     let pool = db::initialize_db_pool();
     let transactions = TransactionsRepository { pool: pool.clone() };
     let transfers = TransfersRepository { pool: pool.clone() };
+    let blocks = BlocksRepository { pool: pool.clone() };
 
     HttpServer::new(move || {
+        let chainweb_client = ChainwebClient::new();
         App::new()
             .app_data(web::Data::new(transactions.clone()))
             .app_data(web::Data::new(transfers.clone()))
+            .app_data(web::Data::new(blocks.clone()))
+            .app_data(web::Data::new(chainweb_client))
             .service(tx)
             .service(txs)
             .service(balance)
             .service(all_balances)
             .service(received_transfers)
             .service(get_transfers)
+            .service(health_check)
     })
     .bind(("0.0.0.0", port))?
     .run()
