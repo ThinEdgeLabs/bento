@@ -334,7 +334,7 @@ impl ChainwebClient {
     ) -> Result<BlockHeaderResponse, Box<dyn Error>> {
         let endpoint = format!("/chain/{chain}/header/branch");
         let mut url = Url::parse(&format!("{}{}", self.base_url, endpoint)).unwrap();
-        url.query_pairs_mut().append_pair("limit", "50");
+        url.query_pairs_mut().append_pair("limit", "5");
         if let Some(next) = next {
             url.query_pairs_mut().append_pair("next", next);
         }
