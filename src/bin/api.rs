@@ -116,7 +116,9 @@ async fn health_check(
     // Get the latest cut from the blockchain node
     let cut = match chainweb_client.get_cut().await {
         Ok(cut) => cut,
-        Err(_) => return Ok(HttpResponse::BadRequest().body("Failed to get cut from blockchain node")),
+        Err(_) => {
+            return Ok(HttpResponse::BadRequest().body("Failed to get cut from blockchain node"))
+        }
     };
 
     // Check each chain to see if our database is in sync
@@ -142,7 +144,7 @@ async fn health_check(
         };
 
         // If any chain is not in sync, return 400
-        if db_height != blockchain_height {
+        if blockchain_height - db_height > 1 {
             return Ok(HttpResponse::BadRequest().body(format!(
                 "Chain {} not in sync: DB height {}, Blockchain height {}",
                 chain_id_i64, db_height, blockchain_height
