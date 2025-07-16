@@ -423,9 +423,8 @@ impl<'a> Indexer<'a> {
         request_keys: &[String],
         chain: &ChainId,
     ) -> Result<Vec<PactTransactionResult>, Box<dyn Error>> {
-        // https://github.com/kadena-io/chainweb-node/issues/1732
-        let transactions_per_request = 1;
-        let concurrent_requests = 10;
+        let transactions_per_request = 10;
+        let concurrent_requests = 4;
         let mut results: Vec<PactTransactionResult> = vec![];
         //TODO: Try to use tokio::StreamExt instead or figure out a way to return a Result
         // so we can handle errors if any of the requests fail
