@@ -144,7 +144,7 @@ async fn health_check(
         };
 
         // If any chain is not in sync, return 400
-        if blockchain_height - db_height > 1 {
+        if blockchain_height - db_height > 2 {
             return Ok(HttpResponse::BadRequest().body(format!(
                 "Chain {} not in sync: DB height {}, Blockchain height {}",
                 chain_id_i64, db_height, blockchain_height
